@@ -26,3 +26,6 @@ AGENTS.md
 
 # Local WinGet manifest generation output
 /manifests/
+
+# Inno Setup release output
+/dist/

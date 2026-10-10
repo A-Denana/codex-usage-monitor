@@ -2616,7 +2616,7 @@ fn paint_content(
         // One provider mark per column, centered across the visible quota rows.
         let icon_size = sc(provider_icons::SIZE);
         let icon_y = (height - icon_size) / 2;
-        let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
+        let active_models = active_model_count(show_claude_code, show_codex, show_antigravity, show_zai);
         let model_width = model_usage_width(row_bar_segment_count(active_models), text_width)
             + sc(MODEL_RIGHT_MARGIN);
         let mut icon_x = content_x + label_width + sc(LABEL_RIGHT_MARGIN);
@@ -2654,6 +2654,8 @@ fn paint_content(
                 codex_session_text,
                 antigravity_session_pct,
                 antigravity_session_text,
+                zai_session_pct,
+                zai_session_text,
                 show_claude_code,
                 show_codex,
                 show_antigravity,
@@ -2686,6 +2688,8 @@ fn paint_content(
                 codex_weekly_text,
                 antigravity_weekly_pct,
                 antigravity_weekly_text,
+                zai_weekly_pct,
+                zai_weekly_text,
                 show_claude_code,
                 show_codex,
                 show_antigravity,
@@ -4662,7 +4666,7 @@ fn draw_row(
     label_width: i32,
     text_width: i32,
 ) {
-    let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
+    let active_models = active_model_count(show_claude_code, show_codex, show_antigravity, show_zai);
     let segment_count = row_bar_segment_count(active_models);
     let compact = active_models > 1;
     let use_model_text_colors = active_models > 1 && appearance.palette == Palette::System;
@@ -4740,7 +4744,6 @@ fn draw_row(
                 antigravity_percent,
                 if compact { compact_quota_value(antigravity_text) } else { antigravity_text },
                 antigravity_accent,
-                zai_accent,
                 track,
                 &antigravity_value_color,
                 text_width,
@@ -4753,7 +4756,8 @@ fn draw_row(
             draw_usage_bar(
                 hdc,
                 model_x + sc(provider_icons::SIZE + provider_icons::RIGHT_MARGIN),
-                y, segment_count, zai_percent, zai_text,
+                y, segment_count, zai_percent,
+                if compact { compact_quota_value(zai_text) } else { zai_text },
                 zai_accent, track, &zai_value_color,
                 text_width, is_dark, appearance,
             );

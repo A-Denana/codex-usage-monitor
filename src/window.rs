@@ -76,10 +76,15 @@ struct AppState {
     antigravity_session_text: String,
     antigravity_weekly_percent: f64,
     antigravity_weekly_text: String,
+    zai_session_percent: f64,
+    zai_session_text: String,
+    zai_weekly_percent: f64,
+    zai_weekly_text: String,
     claude_code_available: bool,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     show_session_window: bool,
     show_weekly_window: bool,
     alert_threshold_percent: u8,
@@ -147,6 +152,7 @@ const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;
 const IDM_MODEL_CLAUDE_CODE: u16 = 60;
 const IDM_MODEL_CODEX: u16 = 61;
 const IDM_MODEL_ANTIGRAVITY: u16 = 62;
+const IDM_MODEL_ZAI: u16 = 63;
 const IDM_SHOW_SESSION_WINDOW: u16 = 71;
 const IDM_SHOW_WEEKLY_WINDOW: u16 = 72;
 const IDM_ALERT_OFF: u16 = 80;
@@ -450,6 +456,8 @@ struct SettingsFile {
     show_codex: bool,
     #[serde(default = "default_show_antigravity")]
     show_antigravity: bool,
+    #[serde(default = "default_show_zai")]
+    show_zai: bool,
     #[serde(default = "default_show_usage_window")]
     show_session_window: bool,
     #[serde(default = "default_show_usage_window")]
@@ -476,6 +484,7 @@ impl Default for SettingsFile {
             show_claude_code: false,
             show_codex: true,
             show_antigravity: false,
+            show_zai: true,
             show_session_window: true,
             show_weekly_window: true,
             alert_threshold_percent: 0,
@@ -506,6 +515,10 @@ fn default_show_codex() -> bool {
 
 fn default_show_antigravity() -> bool {
     false
+}
+
+fn default_show_zai() -> bool {
+    true
 }
 
 fn default_show_usage_window() -> bool {
@@ -570,7 +583,7 @@ fn normalize_settings(mut settings: SettingsFile) -> SettingsFile {
     if !(POLL_1_MIN..=POLL_1_HOUR).contains(&settings.poll_interval_ms) {
         settings.poll_interval_ms = POLL_15_MIN;
     }
-    if !settings.show_claude_code && !settings.show_codex && !settings.show_antigravity {
+    if !settings.show_claude_code && !settings.show_codex && !settings.show_antigravity && !settings.show_zai {
         settings.show_codex = true;
     }
     if !settings.show_session_window && !settings.show_weekly_window {
@@ -609,6 +622,7 @@ fn save_state_settings() {
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
+            show_zai: s.show_zai,
             show_session_window: s.show_session_window,
             show_weekly_window: s.show_weekly_window,
             alert_threshold_percent: s.alert_threshold_percent,
@@ -719,6 +733,15 @@ fn collect_low_quota_alerts(state: &mut AppState, data: &AppUsageData) -> Vec<Qu
                 strings.antigravity_model,
                 usage,
                 strings,
+            );
+        }
+    }
+    if state.show_zai {
+        if let Some(usage) = data.zai.as_ref() {
+            append_provider_alerts(
+                &mut alerts, &mut state.notified_quota_windows,
+                threshold, state.language, tray_icon::TrayIconKind::Zai,
+                "zai", "Z.ai", usage, strings,
             );
         }
     }
@@ -848,6 +871,12 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
                     s.show_weekly_window,
                 ));
             }
+            if s.show_zai {
+                services.push(service_tooltip(
+                    "Z.ai", &s.zai_session_text, &s.zai_weekly_text,
+                    s.show_session_window, s.show_weekly_window,
+                ));
+            }
             Some(tray_icon::TrayIconData {
                 tooltip: if services.is_empty() {
                     strings.window_title.to_string()
@@ -858,11 +887,11 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
         }
         Some(s) => {
             let strings = s.language.strings();
-            let tooltip = match (s.show_claude_code, s.show_codex, s.show_antigravity) {
+            let tooltip = if s.show_zai { strings.window_title } else { match (s.show_claude_code, s.show_codex, s.show_antigravity) {
                 (false, true, false) => strings.codex_window_title,
                 (false, false, true) => strings.antigravity_window_title,
                 _ => strings.window_title,
-            };
+            } };
             Some(tray_icon::TrayIconData {
                 tooltip: tooltip.to_string(),
             })
@@ -1158,6 +1187,19 @@ fn refresh_usage_texts(state: &mut AppState) {
         state.antigravity_session_text = label.to_string();
         state.antigravity_weekly_text = label.to_string();
     }
+    if let Some(zai) = data.zai.as_ref() {
+        state.zai_session_text = poller::format_codex_line(
+            &zai.session, strings, show_remaining, poller::UsageWindowKind::Session,
+        );
+        state.zai_weekly_text = poller::format_codex_line(
+            &zai.weekly, strings, show_remaining, poller::UsageWindowKind::Weekly,
+        );
+    } else if state.show_zai {
+        let label = state.monitor.services[3].error
+            .map(|e| poll_error_display_label(e, state.language)).unwrap_or("...");
+        state.zai_session_text = label.to_string();
+        state.zai_weekly_text = label.to_string();
+    }
     for (id, session, weekly) in [
         (0, &mut state.session_text, &mut state.weekly_text),
         (
@@ -1170,6 +1212,7 @@ fn refresh_usage_texts(state: &mut AppState) {
             &mut state.antigravity_session_text,
             &mut state.antigravity_weekly_text,
         ),
+        (3, &mut state.zai_session_text, &mut state.zai_weekly_text),
     ] {
         let stale = state.monitor.services[id].stale(SystemTime::now());
         quota_refresh::mark_stale(session, stale);
@@ -1645,8 +1688,8 @@ fn cursor_is_on_drag_handle(hwnd: HWND) -> bool {
     }
 }
 
-fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity: bool) -> i32 {
-    (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32).max(1)
+fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity: bool, show_zai: bool) -> i32 {
+    (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32 + show_zai as i32).max(1)
 }
 
 fn row_bar_segment_count(active_models: i32) -> i32 {
@@ -1756,6 +1799,19 @@ fn usage_layout_widths(language: LanguageId, appearance: Appearance) -> (i32, i3
     }
 }
 
+fn usage_layout_widths_for(active_models: i32, language: LanguageId, appearance: Appearance) -> (i32, i32) {
+    if active_models > 1 {
+        let (label, _) = usage_layout_widths(language, appearance);
+        (label, sc(44))
+    } else {
+        usage_layout_widths(language, appearance)
+    }
+}
+
+fn compact_quota_value(value: &str) -> &str {
+    value.find('%').map(|index| &value[..=index]).unwrap_or(value)
+}
+
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
     if language == LanguageId::SimplifiedChinese {
         poller::remaining_percentage(used_percentage)
@@ -1766,7 +1822,7 @@ fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 
 
 fn total_widget_width_for(active_models: i32, language: LanguageId, appearance: Appearance) -> i32 {
     let bar_segments = row_bar_segment_count(active_models);
-    let (label_width, text_width) = usage_layout_widths(language, appearance);
+    let (label_width, text_width) = usage_layout_widths_for(active_models, language, appearance);
     let model_width = model_usage_width(bar_segments, text_width);
 
     sc(LEFT_DIVIDER_W)
@@ -2012,6 +2068,10 @@ pub fn run() {
                 antigravity_session_text: "--".to_string(),
                 antigravity_weekly_percent: 0.0,
                 antigravity_weekly_text: "--".to_string(),
+                zai_session_percent: 0.0,
+                zai_session_text: "--".to_string(),
+                zai_weekly_percent: 0.0,
+                zai_weekly_text: "--".to_string(),
                 claude_code_available,
                 show_claude_code: settings.show_claude_code,
                 show_codex: settings.show_codex,
@@ -2441,6 +2501,7 @@ fn paint_content(
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     show_session_window: bool,
     show_weekly_window: bool,
     codex_accent: &Color,
@@ -4516,6 +4577,7 @@ fn draw_row(
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     claude_accent: &Color,
     codex_accent: &Color,
     antigravity_accent: &Color,

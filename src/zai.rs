@@ -321,7 +321,7 @@ mod tests {
         }
         let stored = format!("enc:v1:{}.{}.{}", url64(&iv), url64(&tag), url64(&contents));
         assert_eq!(
-            decode_credential(&stored, "C:\\Users\\Demo", "Demo", None).unwrap(),
+            decode_credential(&stored, "C:\\Users\\Demo", "Demo", None).unwrap().as_str(),
             "part1.part2"
         );
     }

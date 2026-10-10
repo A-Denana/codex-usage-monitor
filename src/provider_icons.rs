@@ -2,10 +2,10 @@ use std::sync::OnceLock;
 
 use windows::Win32::Foundation::{COLORREF, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, DeleteObject, FillRect, GetTextColor, SetTextColor, HBRUSH, HDC,
+    CreateSolidBrush, DeleteObject, DrawTextW, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FillRect, GetTextColor, SetTextColor, HBRUSH, HDC,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconFromResourceEx, DrawIconEx, DrawTextW, DI_NORMAL, DT_CENTER, DT_SINGLELINE, DT_VCENTER, HICON, LR_DEFAULTCOLOR,
+    CreateIconFromResourceEx, DrawIconEx, DI_NORMAL, HICON, LR_DEFAULTCOLOR,
 };
 
 use crate::native_interop::Color;

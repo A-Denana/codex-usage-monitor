@@ -11,9 +11,22 @@
 
 This animation shows the original segmented-bar design. Current builds let you choose segmented or continuous bars in **Appearance**.
 
-A lightweight native Windows taskbar widget for monitoring Codex usage, with optional Claude Code and Google Antigravity usage display.
+A lightweight native Windows taskbar widget for monitoring Codex and Z.ai Coding Plan usage side by side, with optional Claude Code and Google Antigravity support.
+
+> **This repository is the A-Denana Z.ai fork**, derived from [upstream-ray/codex-usage-monitor](https://github.com/upstream-ray/codex-usage-monitor). The custom version is distributed as a portable Windows preview; do not use the upstream installer to deploy this fork.
 
 It sits in your taskbar and shows how much of your Codex usage window remains without opening the Codex app or account usage page.
+
+## Z.ai portable edition (this fork)
+
+- **Codex and Z.ai** can stay visible together: two compact 5-hour/weekly rows with distinct green/purple bars.
+- Z.ai reads the local encrypted ZCode Coding Plan credential from `%USERPROFILE%\\.zcode\\v2\\credentials.json` in memory and queries the Z.ai quota API. You must already be signed in to ZCode.
+- Quota percentages on the English display are **used**, not remaining. Hover for detailed quota status and the next refresh.
+- Provider toggles, separate retry schedules, low-quota alerts, and a compact stale-data marker are supported.
+- Portable preview settings and Windows startup entry are separate from upstream's installed monitor. **Run only one taskbar monitor at a time** to avoid overlapping widgets.
+- Automatic self-update is disabled for the `-zai.` preview version. Obtain updates from [this fork's releases](https://github.com/A-Denana/codex-usage-monitor/releases).
+
+**Install this edition (portable):** Download `codex-usage.exe` and `codex-usage.exe.sha256` from a release tagged `v*-zai.*` in this fork. Check the SHA256, save the executable in its own folder, and run it. No administrator access, installer, ZCode modification, or credential export is required. Do not overwrite the official Codex Usage executable.
 
 ## What You Get
 
@@ -58,9 +71,11 @@ Refresh after network recovery needs Windows 10 version 2004 or later. On earlie
 
 If you use Claude Code through WSL, that is supported too. The monitor can read your Claude Code credentials from Windows or from your WSL environment.
 
-## Install
+## Install (upstream edition only)
 
-For a per-user installation, download `install.ps1` from the [latest release](https://github.com/upstream-ray/codex-usage-monitor/releases/latest), then run:
+The installer below is for **the original upstream edition without Z.ai support**. For this fork, use the portable instructions above instead.
+
+For an upstream per-user installation, download `install.ps1` from the [upstream latest release](https://github.com/upstream-ray/codex-usage-monitor/releases/latest), then run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1

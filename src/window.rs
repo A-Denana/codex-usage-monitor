@@ -1840,6 +1840,7 @@ fn total_widget_width_for_state(state: &AppState) -> i32 {
             state.show_claude_code,
             state.show_codex,
             state.show_antigravity,
+            state.show_zai,
         ),
         state.language,
         state.appearance,
@@ -1853,7 +1854,7 @@ fn total_widget_width() -> i32 {
             .as_ref()
             .map(|s| {
                 (
-                    active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
+                    active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity, s.show_zai),
                     s.language,
                     s.appearance,
                 )
@@ -2206,7 +2207,7 @@ fn update_quota_tooltips() {
         let mut regions = Vec::new();
         if !s.dragging {
             let chinese = s.language == LanguageId::SimplifiedChinese;
-            let count = active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity);
+            let count = active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity, s.show_zai);
             let (label_width, text_width) = usage_layout_widths_for(count, s.language, s.appearance);
             let width = model_usage_width(row_bar_segment_count(count), text_width);
             let mut left = sc(LEFT_DIVIDER_W)

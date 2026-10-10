@@ -8,6 +8,7 @@ use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce, Tag};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::models::{UsageData, UsageSection};
 use crate::poller::PollError;
@@ -121,7 +122,7 @@ fn decode_credential(
     home: &str,
     user: &str,
     custom: Option<&str>,
-) -> Result<String, PollError> {
+) -> Result<Zeroizing<String>, PollError> {
     let encoded = stored
         .strip_prefix(ENCRYPTED_PREFIX)
         .ok_or(PollError::AuthRequired)?;
@@ -136,10 +137,12 @@ fn decode_credential(
         return Err(PollError::AuthRequired);
     }
 
-    let secret = custom
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().to_owned())
-        .unwrap_or_else(|| format!("zcode-credential-fallback:win32:{home}:{user}"));
+    let secret = Zeroizing::new(
+        custom
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_else(|| format!("zcode-credential-fallback:win32:{home}:{user}")),
+    );
     let mut key = Sha256::digest(secret.as_bytes());
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| PollError::AuthRequired)?;
     let result = cipher.decrypt_in_place_detached(
@@ -153,9 +156,16 @@ fn decode_credential(
         encrypted.fill(0);
         return Err(PollError::AuthRequired);
     }
-    let text = String::from_utf8(encrypted.clone()).map_err(|_| PollError::AuthRequired)?;
-    encrypted.fill(0);
-    // ZCode's decrypted account key has two dot-delimited parts.
+    // Move the plaintext allocation instead of cloning it. The wrapper clears
+    // the key on drop, including early error paths after validation.
+    let text = match String::from_utf8(encrypted) {
+        Ok(text) => Zeroizing::new(text),
+        Err(error) => {
+            let mut bytes = error.into_bytes();
+            bytes.zeroize();
+            return Err(PollError::AuthRequired);
+        }
+    };
     if text.split('.').count() != 2 || text.is_empty() {
         return Err(PollError::AuthRequired);
     }
@@ -211,9 +221,12 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
     // Match the existing providers: ureq is built without default TLS features,
     // so HTTPS requires the native Windows TLS connector configured in build_agent.
     let agent = crate::poller::build_agent()?;
+    // Keep both plaintext key and Authorization header in zeroizing buffers.
+    let mut auth = Zeroizing::new(String::from("Bearer "));
+    auth.push_str(key.as_str());
     let response = agent
         .get(QUOTA_URL)
-        .set("Authorization", &format!("Bearer {key}"))
+        .set("Authorization", auth.as_str())
         .call()
         .map_err(|error| match error {
             ureq::Error::Status(401 | 403, _) => PollError::AuthRequired,
@@ -223,6 +236,7 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
             _ => PollError::RequestFailed,
         })?;
     // Drop the decrypted API key as soon as the request has been made.
+    drop(auth);
     drop(key);
     let payload: QuotaEnvelope = response.into_json().map_err(|_| PollError::RequestFailed)?;
     parse_quota(payload)

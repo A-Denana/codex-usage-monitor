@@ -4,9 +4,6 @@ name: Z.ai Feature Validation
 # source commit, and do not let CI modify the feature branch.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/zai-quota-taskbar
 
 permissions:
   contents: read

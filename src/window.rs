@@ -2232,7 +2232,6 @@ fn update_quota_tooltips() {
                 (
                     2,
                     s.show_antigravity,
-                s.show_zai,
                     "Antigravity",
                     &s.antigravity_session_text,
                     &s.antigravity_weekly_text,

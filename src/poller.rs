@@ -530,7 +530,7 @@ fn resolve_windows_codex_path() -> String {
     "codex.cmd".to_string()
 }
 
-fn build_agent() -> Result<ureq::Agent, PollError> {
+pub(crate) fn build_agent() -> Result<ureq::Agent, PollError> {
     let tls = native_tls::TlsConnector::new().map_err(|_| PollError::RequestFailed)?;
     Ok(ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(30))

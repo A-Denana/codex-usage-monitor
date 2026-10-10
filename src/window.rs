@@ -76,10 +76,15 @@ struct AppState {
     antigravity_session_text: String,
     antigravity_weekly_percent: f64,
     antigravity_weekly_text: String,
+    zai_session_percent: f64,
+    zai_session_text: String,
+    zai_weekly_percent: f64,
+    zai_weekly_text: String,
     claude_code_available: bool,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     show_session_window: bool,
     show_weekly_window: bool,
     alert_threshold_percent: u8,
@@ -147,6 +152,7 @@ const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;
 const IDM_MODEL_CLAUDE_CODE: u16 = 60;
 const IDM_MODEL_CODEX: u16 = 61;
 const IDM_MODEL_ANTIGRAVITY: u16 = 62;
+const IDM_MODEL_ZAI: u16 = 63;
 const IDM_SHOW_SESSION_WINDOW: u16 = 71;
 const IDM_SHOW_WEEKLY_WINDOW: u16 = 72;
 const IDM_ALERT_OFF: u16 = 80;
@@ -324,8 +330,8 @@ fn lock_state() -> MutexGuard<'static, Option<AppState>> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-const SETTINGS_DIR: &str = "CodexUsage";
-const LEGACY_SETTINGS_DIR: &str = "ClaudeCodeUsageMonitor";
+const SETTINGS_DIR: &str = "CodexUsageZaiPreview";
+const LEGACY_SETTINGS_DIR: &str = "CodexUsageZaiPreviewLegacy";
 
 fn appdata_path(directory: &str) -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
@@ -450,6 +456,8 @@ struct SettingsFile {
     show_codex: bool,
     #[serde(default = "default_show_antigravity")]
     show_antigravity: bool,
+    #[serde(default = "default_show_zai")]
+    show_zai: bool,
     #[serde(default = "default_show_usage_window")]
     show_session_window: bool,
     #[serde(default = "default_show_usage_window")]
@@ -476,6 +484,7 @@ impl Default for SettingsFile {
             show_claude_code: false,
             show_codex: true,
             show_antigravity: false,
+            show_zai: true,
             show_session_window: true,
             show_weekly_window: true,
             alert_threshold_percent: 0,
@@ -506,6 +515,10 @@ fn default_show_codex() -> bool {
 
 fn default_show_antigravity() -> bool {
     false
+}
+
+fn default_show_zai() -> bool {
+    true
 }
 
 fn default_show_usage_window() -> bool {
@@ -570,7 +583,11 @@ fn normalize_settings(mut settings: SettingsFile) -> SettingsFile {
     if !(POLL_1_MIN..=POLL_1_HOUR).contains(&settings.poll_interval_ms) {
         settings.poll_interval_ms = POLL_15_MIN;
     }
-    if !settings.show_claude_code && !settings.show_codex && !settings.show_antigravity {
+    if !settings.show_claude_code
+        && !settings.show_codex
+        && !settings.show_antigravity
+        && !settings.show_zai
+    {
         settings.show_codex = true;
     }
     if !settings.show_session_window && !settings.show_weekly_window {
@@ -609,6 +626,7 @@ fn save_state_settings() {
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
+            show_zai: s.show_zai,
             show_session_window: s.show_session_window,
             show_weekly_window: s.show_weekly_window,
             alert_threshold_percent: s.alert_threshold_percent,
@@ -717,6 +735,21 @@ fn collect_low_quota_alerts(state: &mut AppState, data: &AppUsageData) -> Vec<Qu
                 tray_icon::TrayIconKind::Antigravity,
                 "antigravity",
                 strings.antigravity_model,
+                usage,
+                strings,
+            );
+        }
+    }
+    if state.show_zai {
+        if let Some(usage) = data.zai.as_ref() {
+            append_provider_alerts(
+                &mut alerts,
+                &mut state.notified_quota_windows,
+                threshold,
+                state.language,
+                tray_icon::TrayIconKind::Zai,
+                "zai",
+                "Z.ai",
                 usage,
                 strings,
             );
@@ -848,6 +881,15 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
                     s.show_weekly_window,
                 ));
             }
+            if s.show_zai {
+                services.push(service_tooltip(
+                    "Z.ai",
+                    &s.zai_session_text,
+                    &s.zai_weekly_text,
+                    s.show_session_window,
+                    s.show_weekly_window,
+                ));
+            }
             Some(tray_icon::TrayIconData {
                 tooltip: if services.is_empty() {
                     strings.window_title.to_string()
@@ -858,10 +900,14 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
         }
         Some(s) => {
             let strings = s.language.strings();
-            let tooltip = match (s.show_claude_code, s.show_codex, s.show_antigravity) {
-                (false, true, false) => strings.codex_window_title,
-                (false, false, true) => strings.antigravity_window_title,
-                _ => strings.window_title,
+            let tooltip = if s.show_zai {
+                strings.window_title
+            } else {
+                match (s.show_claude_code, s.show_codex, s.show_antigravity) {
+                    (false, true, false) => strings.codex_window_title,
+                    (false, false, true) => strings.antigravity_window_title,
+                    _ => strings.window_title,
+                }
             };
             Some(tray_icon::TrayIconData {
                 tooltip: tooltip.to_string(),
@@ -1158,6 +1204,27 @@ fn refresh_usage_texts(state: &mut AppState) {
         state.antigravity_session_text = label.to_string();
         state.antigravity_weekly_text = label.to_string();
     }
+    if let Some(zai) = data.zai.as_ref() {
+        state.zai_session_text = poller::format_codex_line(
+            &zai.session,
+            strings,
+            show_remaining,
+            poller::UsageWindowKind::Session,
+        );
+        state.zai_weekly_text = poller::format_codex_line(
+            &zai.weekly,
+            strings,
+            show_remaining,
+            poller::UsageWindowKind::Weekly,
+        );
+    } else if state.show_zai {
+        let label = state.monitor.services[3]
+            .error
+            .map(|e| poll_error_display_label(e, state.language))
+            .unwrap_or("...");
+        state.zai_session_text = label.to_string();
+        state.zai_weekly_text = label.to_string();
+    }
     for (id, session, weekly) in [
         (0, &mut state.session_text, &mut state.weekly_text),
         (
@@ -1170,6 +1237,7 @@ fn refresh_usage_texts(state: &mut AppState) {
             &mut state.antigravity_session_text,
             &mut state.antigravity_weekly_text,
         ),
+        (3, &mut state.zai_session_text, &mut state.zai_weekly_text),
     ] {
         let stale = state.monitor.services[id].stale(SystemTime::now());
         quota_refresh::mark_stale(session, stale);
@@ -1433,8 +1501,8 @@ fn begin_winget_update(hwnd: HWND) {
 }
 
 const STARTUP_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const STARTUP_REGISTRY_KEY: &str = "CodexUsage";
-const LEGACY_STARTUP_REGISTRY_KEY: &str = "ClaudeCodeUsageMonitor";
+const STARTUP_REGISTRY_KEY: &str = "CodexUsageZaiPreview";
+const LEGACY_STARTUP_REGISTRY_KEY: &str = "CodexUsageZaiPreviewLegacy";
 
 /// Returns true only if the startup registry value points to this executable.
 fn is_startup_enabled() -> bool {
@@ -1645,8 +1713,13 @@ fn cursor_is_on_drag_handle(hwnd: HWND) -> bool {
     }
 }
 
-fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity: bool) -> i32 {
-    (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32).max(1)
+fn active_model_count(
+    show_claude_code: bool,
+    show_codex: bool,
+    show_antigravity: bool,
+    show_zai: bool,
+) -> i32 {
+    (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32 + show_zai as i32).max(1)
 }
 
 fn row_bar_segment_count(active_models: i32) -> i32 {
@@ -1756,6 +1829,37 @@ fn usage_layout_widths(language: LanguageId, appearance: Appearance) -> (i32, i3
     }
 }
 
+fn usage_layout_widths_for(
+    active_models: i32,
+    language: LanguageId,
+    appearance: Appearance,
+) -> (i32, i32) {
+    if active_models > 1 {
+        let (label, _) = usage_layout_widths(language, appearance);
+        (label, sc(44))
+    } else {
+        usage_layout_widths(language, appearance)
+    }
+}
+
+fn next_zai_visibility(current: bool, other_provider_visible: bool) -> bool {
+    if other_provider_visible || !current {
+        !current
+    } else {
+        current
+    }
+}
+
+fn compact_quota_value(value: &str) -> std::borrow::Cow<'_, str> {
+    match value.find('%') {
+        Some(index) if value.ends_with(" *") => {
+            std::borrow::Cow::Owned(format!("{} *", &value[..=index]))
+        }
+        Some(index) => std::borrow::Cow::Borrowed(&value[..=index]),
+        None => std::borrow::Cow::Borrowed(value),
+    }
+}
+
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
     if language == LanguageId::SimplifiedChinese {
         poller::remaining_percentage(used_percentage)
@@ -1766,7 +1870,7 @@ fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 
 
 fn total_widget_width_for(active_models: i32, language: LanguageId, appearance: Appearance) -> i32 {
     let bar_segments = row_bar_segment_count(active_models);
-    let (label_width, text_width) = usage_layout_widths(language, appearance);
+    let (label_width, text_width) = usage_layout_widths_for(active_models, language, appearance);
     let model_width = model_usage_width(bar_segments, text_width);
 
     sc(LEFT_DIVIDER_W)
@@ -1784,6 +1888,7 @@ fn total_widget_width_for_state(state: &AppState) -> i32 {
             state.show_claude_code,
             state.show_codex,
             state.show_antigravity,
+            state.show_zai,
         ),
         state.language,
         state.appearance,
@@ -1797,7 +1902,12 @@ fn total_widget_width() -> i32 {
             .as_ref()
             .map(|s| {
                 (
-                    active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
+                    active_model_count(
+                        s.show_claude_code,
+                        s.show_codex,
+                        s.show_antigravity,
+                        s.show_zai,
+                    ),
                     s.language,
                     s.appearance,
                 )
@@ -1948,6 +2058,7 @@ pub fn run() {
             settings.show_claude_code,
             settings.show_codex,
             settings.show_antigravity,
+            settings.show_zai,
         );
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
@@ -2012,10 +2123,15 @@ pub fn run() {
                 antigravity_session_text: "--".to_string(),
                 antigravity_weekly_percent: 0.0,
                 antigravity_weekly_text: "--".to_string(),
+                zai_session_percent: 0.0,
+                zai_session_text: "--".to_string(),
+                zai_weekly_percent: 0.0,
+                zai_weekly_text: "--".to_string(),
                 claude_code_available,
                 show_claude_code: settings.show_claude_code,
                 show_codex: settings.show_codex,
                 show_antigravity: settings.show_antigravity,
+                show_zai: settings.show_zai,
                 show_session_window: settings.show_session_window,
                 show_weekly_window: settings.show_weekly_window,
                 alert_threshold_percent: settings.alert_threshold_percent,
@@ -2028,6 +2144,7 @@ pub fn run() {
                         settings.show_claude_code,
                         settings.show_codex,
                         settings.show_antigravity,
+                        settings.show_zai,
                     ],
                     Instant::now(),
                 ),
@@ -2143,8 +2260,14 @@ fn update_quota_tooltips() {
         let mut regions = Vec::new();
         if !s.dragging {
             let chinese = s.language == LanguageId::SimplifiedChinese;
-            let count = active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity);
-            let (label_width, text_width) = usage_layout_widths(s.language, s.appearance);
+            let count = active_model_count(
+                s.show_claude_code,
+                s.show_codex,
+                s.show_antigravity,
+                s.show_zai,
+            );
+            let (label_width, text_width) =
+                usage_layout_widths_for(count, s.language, s.appearance);
             let width = model_usage_width(row_bar_segment_count(count), text_width);
             let mut left = sc(LEFT_DIVIDER_W)
                 + sc(DIVIDER_RIGHT_MARGIN)
@@ -2171,6 +2294,13 @@ fn update_quota_tooltips() {
                     "Antigravity",
                     &s.antigravity_session_text,
                     &s.antigravity_weekly_text,
+                ),
+                (
+                    3,
+                    s.show_zai,
+                    "Z.ai",
+                    &s.zai_session_text,
+                    &s.zai_weekly_text,
                 ),
             ] {
                 if !visible {
@@ -2234,9 +2364,14 @@ fn render_layered() {
         antigravity_session_text,
         antigravity_weekly_pct,
         antigravity_weekly_text,
+        zai_session_pct,
+        zai_session_text,
+        zai_weekly_pct,
+        zai_weekly_text,
         show_claude_code,
         show_codex,
         show_antigravity,
+        show_zai,
         show_session_window,
         show_weekly_window,
     ) = {
@@ -2261,9 +2396,14 @@ fn render_layered() {
                 s.antigravity_session_text.clone(),
                 s.antigravity_weekly_percent,
                 s.antigravity_weekly_text.clone(),
+                s.zai_session_percent,
+                s.zai_session_text.clone(),
+                s.zai_weekly_percent,
+                s.zai_weekly_text.clone(),
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
+                s.show_zai,
                 s.show_session_window,
                 s.show_weekly_window,
             ),
@@ -2295,6 +2435,7 @@ fn render_layered() {
     let (bg_color, text_color, track) = appearance_colors(appearance, is_dark);
     let codex_accent = provider_icons::codex_color(appearance.is_dark(is_dark));
     let antigravity_accent = antigravity_accent_color();
+    let zai_accent = provider_icons::zai_color(appearance.is_dark(is_dark));
 
     unsafe {
         let screen_dc = GetDC(hwnd);
@@ -2353,13 +2494,19 @@ fn render_layered() {
             &antigravity_session_text,
             antigravity_weekly_pct,
             &antigravity_weekly_text,
+            zai_session_pct,
+            &zai_session_text,
+            zai_weekly_pct,
+            &zai_weekly_text,
             show_claude_code,
             show_codex,
             show_antigravity,
+            show_zai,
             show_session_window,
             show_weekly_window,
             &codex_accent,
             &antigravity_accent,
+            &zai_accent,
         );
 
         // System mode blends with the taskbar. High contrast modes use a solid
@@ -2438,13 +2585,19 @@ fn paint_content(
     antigravity_session_text: &str,
     antigravity_weekly_pct: f64,
     antigravity_weekly_text: &str,
+    zai_session_pct: f64,
+    zai_session_text: &str,
+    zai_weekly_pct: f64,
+    zai_weekly_text: &str,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     show_session_window: bool,
     show_weekly_window: bool,
     codex_accent: &Color,
     antigravity_accent: &Color,
+    zai_accent: &Color,
 ) {
     unsafe {
         let is_dark = appearance.is_dark(is_dark);
@@ -2454,7 +2607,13 @@ fn paint_content(
         let codex_weekly_pct = usage_percent_for_display(language, codex_weekly_pct);
         let antigravity_session_pct = usage_percent_for_display(language, antigravity_session_pct);
         let antigravity_weekly_pct = usage_percent_for_display(language, antigravity_weekly_pct);
-        let (label_width, text_width) = usage_layout_widths(language, appearance);
+        let zai_session_pct = usage_percent_for_display(language, zai_session_pct);
+        let zai_weekly_pct = usage_percent_for_display(language, zai_weekly_pct);
+        let (label_width, text_width) = usage_layout_widths_for(
+            active_model_count(show_claude_code, show_codex, show_antigravity, show_zai),
+            language,
+            appearance,
+        );
 
         let client_rect = RECT {
             left: 0,
@@ -2523,7 +2682,8 @@ fn paint_content(
         // One provider mark per column, centered across the visible quota rows.
         let icon_size = sc(provider_icons::SIZE);
         let icon_y = (height - icon_size) / 2;
-        let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
+        let active_models =
+            active_model_count(show_claude_code, show_codex, show_antigravity, show_zai);
         let model_width = model_usage_width(row_bar_segment_count(active_models), text_width)
             + sc(MODEL_RIGHT_MARGIN);
         let mut icon_x = content_x + label_width + sc(LABEL_RIGHT_MARGIN);
@@ -2533,6 +2693,13 @@ fn paint_content(
         }
         if show_codex {
             provider_icons::draw(hdc, icon_x, icon_y, icon_size, Provider::Codex);
+            icon_x += model_width;
+        }
+        if show_antigravity {
+            icon_x += model_width;
+        }
+        if show_zai {
+            provider_icons::draw(hdc, icon_x, icon_y, icon_size, Provider::Zai);
         }
 
         if show_session_window {
@@ -2554,12 +2721,16 @@ fn paint_content(
                 codex_session_text,
                 antigravity_session_pct,
                 antigravity_session_text,
+                zai_session_pct,
+                zai_session_text,
                 show_claude_code,
                 show_codex,
                 show_antigravity,
+                show_zai,
                 accent,
                 codex_accent,
                 antigravity_accent,
+                zai_accent,
                 track,
                 label_width,
                 text_width,
@@ -2584,12 +2755,16 @@ fn paint_content(
                 codex_weekly_text,
                 antigravity_weekly_pct,
                 antigravity_weekly_text,
+                zai_weekly_pct,
+                zai_weekly_text,
                 show_claude_code,
                 show_codex,
                 show_antigravity,
+                show_zai,
                 accent,
                 codex_accent,
                 antigravity_accent,
+                zai_accent,
                 track,
                 label_width,
                 text_width,
@@ -2641,7 +2816,12 @@ fn request_poll(hwnd: SendHwnd, force: bool) {
     {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            let enabled = [s.show_claude_code, s.show_codex, s.show_antigravity];
+            let enabled = [
+                s.show_claude_code,
+                s.show_codex,
+                s.show_antigravity,
+                s.show_zai,
+            ];
             s.monitor.configure(enabled, Instant::now());
             if force {
                 s.monitor.force(Instant::now(), true);
@@ -2699,6 +2879,47 @@ fn do_poll(send_hwnd: SendHwnd) {
     );
 }
 
+fn fresh_provider_usage(id: usize, data: Option<crate::models::UsageData>) -> AppUsageData {
+    let mut fresh = AppUsageData::default();
+    match id {
+        0 => fresh.claude_code = data,
+        1 => fresh.codex = data,
+        2 => fresh.antigravity = data,
+        3 => fresh.zai = data,
+        _ => {}
+    }
+    fresh
+}
+
+fn provider_auth_notice(
+    id: usize,
+    strings: Strings,
+) -> (tray_icon::TrayIconKind, &'static str, &'static str) {
+    match id {
+        0 => (
+            tray_icon::TrayIconKind::Claude,
+            strings.token_expired_title,
+            strings.token_expired_body,
+        ),
+        1 => (
+            tray_icon::TrayIconKind::Codex,
+            strings.codex_token_expired_title,
+            strings.codex_token_expired_body,
+        ),
+        2 => (
+            tray_icon::TrayIconKind::Antigravity,
+            strings.antigravity_token_expired_title,
+            strings.antigravity_token_expired_body,
+        ),
+        3 => (
+            tray_icon::TrayIconKind::Zai,
+            "Z.ai credentials required",
+            "Check your ZCode Coding Plan sign-in and refresh the quota monitor.",
+        ),
+        _ => unreachable!("unknown provider"),
+    }
+}
+
 fn complete_provider_poll(
     send_hwnd: SendHwnd,
     job: &provider_poll::Job,
@@ -2726,15 +2947,11 @@ fn complete_provider_poll(
             }
             return;
         }
-        let mut fresh = AppUsageData::default();
-        if completion.successful {
-            let data = s.monitor.services[job.id].data.clone();
-            match job.id {
-                0 => fresh.claude_code = data,
-                1 => fresh.codex = data,
-                _ => fresh.antigravity = data,
-            }
-        }
+        let fresh = if completion.successful {
+            fresh_provider_usage(job.id, s.monitor.services[job.id].data.clone())
+        } else {
+            AppUsageData::default()
+        };
         let alerts = collect_low_quota_alerts(s, &fresh);
         let cached = s.monitor.cached();
         for (usage, session, weekly) in [
@@ -2753,6 +2970,11 @@ fn complete_provider_poll(
                 &mut s.antigravity_session_percent,
                 &mut s.antigravity_weekly_percent,
             ),
+            (
+                cached.zai.as_ref(),
+                &mut s.zai_session_percent,
+                &mut s.zai_weekly_percent,
+            ),
         ] {
             *session = usage.map_or(0.0, |u| u.session.percentage);
             *weekly = usage.map_or(0.0, |u| u.weekly.percentage);
@@ -2768,26 +2990,9 @@ fn complete_provider_poll(
             "provider poll completed id={} error={:?} interval_ms={}",
             job.id, service.error, service.interval_ms
         ));
-        let notice = completion.notify_auth.then(|| {
-            let strings = s.language.strings();
-            match job.id {
-                0 => (
-                    tray_icon::TrayIconKind::Claude,
-                    strings.token_expired_title,
-                    strings.token_expired_body,
-                ),
-                1 => (
-                    tray_icon::TrayIconKind::Codex,
-                    strings.codex_token_expired_title,
-                    strings.codex_token_expired_body,
-                ),
-                _ => (
-                    tray_icon::TrayIconKind::Antigravity,
-                    strings.antigravity_token_expired_title,
-                    strings.antigravity_token_expired_body,
-                ),
-            }
-        });
+        let notice = completion
+            .notify_auth
+            .then(|| provider_auth_notice(job.id, s.language.strings()));
         (alerts, notice)
     };
     for alert in &alerts {
@@ -3637,7 +3842,7 @@ unsafe extern "system" fn wnd_proc(
                     }
                     save_state_settings();
                 }
-                IDM_MODEL_CLAUDE_CODE | IDM_MODEL_CODEX | IDM_MODEL_ANTIGRAVITY => {
+                IDM_MODEL_CLAUDE_CODE | IDM_MODEL_CODEX | IDM_MODEL_ANTIGRAVITY | IDM_MODEL_ZAI => {
                     {
                         let mut state = lock_state();
                         if let Some(s) = state.as_mut() {
@@ -3646,20 +3851,37 @@ unsafe extern "system" fn wnd_proc(
                                     if s.claude_code_available
                                         && (s.show_codex
                                             || s.show_antigravity
+                                            || s.show_zai
                                             || !s.show_claude_code)
                                     {
                                         s.show_claude_code = !s.show_claude_code;
                                     }
                                 }
                                 IDM_MODEL_CODEX => {
-                                    if s.show_claude_code || s.show_antigravity || !s.show_codex {
+                                    if s.show_claude_code
+                                        || s.show_antigravity
+                                        || s.show_zai
+                                        || !s.show_codex
+                                    {
                                         s.show_codex = !s.show_codex;
                                     }
                                 }
                                 IDM_MODEL_ANTIGRAVITY => {
-                                    if s.show_claude_code || s.show_codex || !s.show_antigravity {
+                                    if s.show_claude_code
+                                        || s.show_codex
+                                        || s.show_zai
+                                        || !s.show_antigravity
+                                    {
                                         s.show_antigravity = !s.show_antigravity;
                                     }
+                                }
+                                IDM_MODEL_ZAI => {
+                                    s.show_zai = next_zai_visibility(
+                                        s.show_zai,
+                                        s.show_claude_code
+                                            || s.show_codex
+                                            || s.show_antigravity,
+                                    );
                                 }
                                 _ => {}
                             }
@@ -3669,6 +3891,8 @@ unsafe extern "system" fn wnd_proc(
                             s.codex_weekly_text = "...".to_string();
                             s.antigravity_session_text = "...".to_string();
                             s.antigravity_weekly_text = "...".to_string();
+                            s.zai_session_text = "...".to_string();
+                            s.zai_weekly_text = "...".to_string();
                         }
                     }
                     save_state_settings();
@@ -3789,6 +4013,7 @@ fn show_context_menu(hwnd: HWND) {
             claude_code_available,
             show_codex,
             show_antigravity,
+            show_zai,
             show_session_window,
             show_weekly_window,
             alert_threshold_percent,
@@ -3808,6 +4033,7 @@ fn show_context_menu(hwnd: HWND) {
                     s.claude_code_available,
                     s.show_codex,
                     s.show_antigravity,
+                    s.show_zai,
                     s.show_session_window,
                     s.show_weekly_window,
                     s.alert_threshold_percent,
@@ -3825,6 +4051,7 @@ fn show_context_menu(hwnd: HWND) {
                     false,
                     false,
                     false,
+                    true,
                     true,
                     true,
                     0,
@@ -3936,6 +4163,17 @@ fn show_context_menu(hwnd: HWND) {
             PCWSTR::from_raw(antigravity_model.as_ptr()),
         );
 
+        let zai_label = native_interop::wide_str("Z.ai Coding Plan");
+        let _ = AppendMenuW(
+            models_menu,
+            if show_zai {
+                MF_CHECKED
+            } else {
+                MENU_ITEM_FLAGS(0)
+            },
+            IDM_MODEL_ZAI as usize,
+            PCWSTR::from_raw(zai_label.as_ptr()),
+        );
         let models_label = native_interop::wide_str(strings.models);
         let _ = AppendMenuW(
             menu,
@@ -4404,9 +4642,14 @@ fn paint(hdc: HDC, hwnd: HWND) {
         antigravity_session_text,
         antigravity_weekly_pct,
         antigravity_weekly_text,
+        zai_session_pct,
+        zai_session_text,
+        zai_weekly_pct,
+        zai_weekly_text,
         show_claude_code,
         show_codex,
         show_antigravity,
+        show_zai,
         show_session_window,
         show_weekly_window,
     ) = {
@@ -4429,9 +4672,14 @@ fn paint(hdc: HDC, hwnd: HWND) {
                 s.antigravity_session_text.clone(),
                 s.antigravity_weekly_percent,
                 s.antigravity_weekly_text.clone(),
+                s.zai_session_percent,
+                s.zai_session_text.clone(),
+                s.zai_weekly_percent,
+                s.zai_weekly_text.clone(),
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
+                s.show_zai,
                 s.show_session_window,
                 s.show_weekly_window,
             ),
@@ -4443,6 +4691,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
     let (bg_color, text_color, track) = appearance_colors(appearance, is_dark);
     let codex_accent = provider_icons::codex_color(appearance.is_dark(is_dark));
     let antigravity_accent = antigravity_accent_color();
+    let zai_accent = provider_icons::zai_color(appearance.is_dark(is_dark));
 
     unsafe {
         let mut client_rect = RECT::default();
@@ -4482,13 +4731,19 @@ fn paint(hdc: HDC, hwnd: HWND) {
             &antigravity_session_text,
             antigravity_weekly_pct,
             &antigravity_weekly_text,
+            zai_session_pct,
+            &zai_session_text,
+            zai_weekly_pct,
+            &zai_weekly_text,
             show_claude_code,
             show_codex,
             show_antigravity,
+            show_zai,
             show_session_window,
             show_weekly_window,
             &codex_accent,
             &antigravity_accent,
+            &zai_accent,
         );
 
         let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
@@ -4513,18 +4768,44 @@ fn draw_row(
     codex_text: &str,
     antigravity_percent: f64,
     antigravity_text: &str,
+    zai_percent: f64,
+    zai_text: &str,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
+    show_zai: bool,
     claude_accent: &Color,
     codex_accent: &Color,
     antigravity_accent: &Color,
+    zai_accent: &Color,
     track: &Color,
     label_width: i32,
     text_width: i32,
 ) {
-    let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
+    let active_models =
+        active_model_count(show_claude_code, show_codex, show_antigravity, show_zai);
     let segment_count = row_bar_segment_count(active_models);
+    let compact = active_models > 1;
+    let compact_claude = if compact {
+        compact_quota_value(claude_text)
+    } else {
+        std::borrow::Cow::Borrowed(claude_text)
+    };
+    let compact_codex = if compact {
+        compact_quota_value(codex_text)
+    } else {
+        std::borrow::Cow::Borrowed(codex_text)
+    };
+    let compact_antigravity = if compact {
+        compact_quota_value(antigravity_text)
+    } else {
+        std::borrow::Cow::Borrowed(antigravity_text)
+    };
+    let compact_zai = if compact {
+        compact_quota_value(zai_text)
+    } else {
+        std::borrow::Cow::Borrowed(zai_text)
+    };
     let use_model_text_colors = active_models > 1 && appearance.palette == Palette::System;
     let is_dark = appearance.is_dark(is_dark);
     let claude_value_color = if use_model_text_colors {
@@ -4533,6 +4814,7 @@ fn draw_row(
         *text_color
     };
     let codex_value_color = provider_icons::codex_color(is_dark);
+    let zai_value_color = provider_icons::zai_color(is_dark);
     let antigravity_value_color = if use_model_text_colors {
         antigravity_usage_text_color(is_dark)
     } else {
@@ -4563,7 +4845,7 @@ fn draw_row(
                 y,
                 segment_count,
                 claude_percent,
-                claude_text,
+                compact_claude.as_ref(),
                 claude_accent,
                 track,
                 &claude_value_color,
@@ -4580,7 +4862,7 @@ fn draw_row(
                 y,
                 segment_count,
                 codex_percent,
-                codex_text,
+                compact_codex.as_ref(),
                 codex_accent,
                 track,
                 &codex_value_color,
@@ -4597,10 +4879,27 @@ fn draw_row(
                 y,
                 segment_count,
                 antigravity_percent,
-                antigravity_text,
+                compact_antigravity.as_ref(),
                 antigravity_accent,
                 track,
                 &antigravity_value_color,
+                text_width,
+                is_dark,
+                appearance,
+            );
+            model_x += model_usage_width(segment_count, text_width) + sc(MODEL_RIGHT_MARGIN);
+        }
+        if show_zai {
+            draw_usage_bar(
+                hdc,
+                model_x + sc(provider_icons::SIZE + provider_icons::RIGHT_MARGIN),
+                y,
+                segment_count,
+                zai_percent,
+                compact_zai.as_ref(),
+                zai_accent,
+                track,
+                &zai_value_color,
                 text_width,
                 is_dark,
                 appearance,
@@ -5020,6 +5319,7 @@ mod tests {
             show_claude_code: true,
             show_codex: false,
             show_antigravity: false,
+            show_zai: false,
             ..SettingsFile::default()
         };
 
@@ -5042,6 +5342,31 @@ mod tests {
         };
         assert_eq!(format_local_system_time(local), "2026-07-17 18:30");
         assert_eq!(format_precise_reset_time(None), None);
+    }
+
+    #[test]
+    fn zai_menu_toggle_preserves_last_visible_provider() {
+        assert!(!next_zai_visibility(true, true));
+        assert!(next_zai_visibility(true, false));
+        assert!(next_zai_visibility(false, false));
+    }
+
+    #[test]
+    fn fresh_zai_completions_do_not_route_to_antigravity() {
+        let data = crate::models::UsageData::default();
+        let fresh = fresh_provider_usage(3, Some(data));
+        assert!(fresh.zai.is_some());
+        assert!(fresh.antigravity.is_none());
+        let notice = provider_auth_notice(3, LanguageId::English.strings());
+        assert!(matches!(notice.0, tray_icon::TrayIconKind::Zai));
+        assert!(notice.1.starts_with("Z.ai"));
+    }
+
+    #[test]
+    fn compact_percentage_retains_stale_marker_without_reset_countdown() {
+        assert_eq!(compact_quota_value("54% · 1h 15m").as_ref(), "54%");
+        assert_eq!(compact_quota_value("79% · 2d 3h *").as_ref(), "79% *");
+        assert_eq!(compact_quota_value("ERR").as_ref(), "ERR");
     }
 
     #[test]

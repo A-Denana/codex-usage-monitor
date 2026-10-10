@@ -39,7 +39,7 @@ pub struct Completion {
     pub successful: bool,
 }
 pub struct Monitor {
-    pub services: [Service; 3],
+    pub services: [Service; 4],
 }
 
 fn is_auth(error: PollError) -> bool {
@@ -51,6 +51,9 @@ fn is_auth(error: PollError) -> bool {
 fn watch_mode(id: usize, error: PollError) -> CredentialWatchMode {
     if id == 1 {
         return CredentialWatchMode::Codex;
+    }
+    if id == 3 {
+        return CredentialWatchMode::Zai;
     }
     if id == 2 {
         CredentialWatchMode::Antigravity
@@ -137,7 +140,7 @@ pub fn launch(
 }
 
 impl Monitor {
-    pub fn new(enabled: [bool; 3], now: Instant) -> Self {
+    pub fn new(enabled: [bool; 4], now: Instant) -> Self {
         Self {
             services: std::array::from_fn(|id| Service {
                 data: None,
@@ -157,7 +160,7 @@ impl Monitor {
             }),
         }
     }
-    pub fn configure(&mut self, enabled: [bool; 3], now: Instant) {
+    pub fn configure(&mut self, enabled: [bool; 4], now: Instant) {
         for (service, enabled) in self.services.iter_mut().zip(enabled) {
             if service.enabled != enabled {
                 service.enabled = enabled;
@@ -323,6 +326,7 @@ impl Monitor {
             claude_code: get(0),
             codex: get(1),
             antigravity: get(2),
+            zai: get(3),
         }
     }
 }
@@ -412,7 +416,7 @@ mod tests {
     fn server_retry_deadline_survives_manual_refresh_and_selection_changes() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut monitor = Monitor::new([true, true, false], now);
+        let mut monitor = Monitor::new([true, true, false, false], now);
         let jobs = monitor.plan(now);
         monitor.force(now, true); // A click during the request must also wait.
         complete(
@@ -429,8 +433,8 @@ mod tests {
         assert_eq!(follow_up[0].id, 1);
         complete(&mut monitor, &follow_up[0], Ok(usage(20.0)), now, wall);
         monitor.force(now, true);
-        monitor.configure([false, true, false], now);
-        monitor.configure([true, true, false], now);
+        monitor.configure([false, true, false, false], now);
+        monitor.configure([true, true, false, false], now);
         assert!(monitor.plan(now).iter().all(|job| job.id != 0));
         let due = now + Duration::from_secs(1800);
         let job = monitor
@@ -446,7 +450,7 @@ mod tests {
             .into_iter()
             .find(|job| job.id == 0)
             .unwrap();
-        monitor.configure([false, true, false], due);
+        monitor.configure([false, true, false, false], due);
         assert!(
             !complete(
                 &mut monitor,
@@ -457,7 +461,7 @@ mod tests {
             )
             .accepted
         );
-        monitor.configure([true, true, false], due);
+        monitor.configure([true, true, false, false], due);
         assert!(monitor.plan(due).iter().all(|job| job.id != 0));
     }
 
@@ -465,7 +469,7 @@ mod tests {
     fn hover_status_tracks_running_requests_schedules_and_auth_checks() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut monitor = Monitor::new([true, false, false], now);
+        let mut monitor = Monitor::new([true, false, false, false], now);
         let job = monitor.plan(now).remove(0);
         assert!(monitor.services[0]
             .description(wall, now, true)
@@ -500,7 +504,7 @@ mod tests {
     #[test]
     fn codex_publishes_while_claude_is_still_waiting() {
         let now = Instant::now();
-        let mut monitor = Monitor::new([true, true, false], now);
+        let mut monitor = Monitor::new([true, true, false, false], now);
         let jobs = monitor.plan(now);
         let (release, wait) = mpsc::channel();
         let wait = Mutex::new(wait);
@@ -531,7 +535,7 @@ mod tests {
     fn fast_service_can_poll_again_while_the_other_service_is_still_in_flight() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let monitor = Arc::new(Mutex::new(Monitor::new([true, true, false], now)));
+        let monitor = Arc::new(Mutex::new(Monitor::new([true, true, false, false], now)));
         let jobs = monitor.lock().unwrap().plan(now);
         let (release, wait) = mpsc::channel();
         let wait = Mutex::new(wait);
@@ -603,10 +607,10 @@ mod tests {
     ) {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut monitor = Monitor::new([false, true, false], now);
+        let mut monitor = Monitor::new([false, true, false, false], now);
         let old = monitor.plan(now).remove(0);
-        monitor.configure([true, false, false], now);
-        monitor.configure([true, true, false], now);
+        monitor.configure([true, false, false, false], now);
+        monitor.configure([true, true, false, false], now);
         let jobs = monitor.plan(now);
         assert_eq!(jobs.iter().map(|j| j.id).collect::<Vec<_>>(), vec![0]);
         assert!(!complete(&mut monitor, &old, Ok(usage(20.0)), now, wall).accepted);
@@ -635,7 +639,7 @@ mod tests {
     fn mixed_failure_retry_and_recovery_keep_independent_timestamps_and_deadlines() {
         let start = Instant::now();
         let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
-        let mut m = Monitor::new([true, true, false], start);
+        let mut m = Monitor::new([true, true, false, false], start);
         let jobs = m.plan(start);
         complete(&mut m, &jobs[0], Ok(usage(40.0)), start, wall);
         complete(
@@ -673,16 +677,16 @@ mod tests {
     fn switching_services_during_a_request_discards_old_completion_and_fetches_new_selection() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([false, true, false], now);
+        let mut m = Monitor::new([false, true, false, false], now);
         let old = m.plan(now).remove(0);
-        m.configure([true, false, false], now);
+        m.configure([true, false, false, false], now);
         assert!(!complete(&mut m, &old, Ok(usage(95.0)), now, wall).accepted);
         let new = m.plan(now).remove(0);
         assert_eq!(new.id, 0);
         assert!(complete(&mut m, &new, Ok(usage(20.0)), now, wall).accepted);
         assert!(m.cached().codex.is_none());
         assert_eq!(m.cached().claude_code.unwrap().session.percentage, 20.0);
-        m.configure([true, true, false], now);
+        m.configure([true, true, false, false], now);
         let new = m.plan(now).remove(0);
         assert_eq!(new.id, 1);
         assert!(!complete(&mut m, &old, Ok(usage(95.0)), now, wall).accepted);
@@ -692,7 +696,7 @@ mod tests {
     fn auth_failure_does_not_pause_other_service_and_recovers_only_after_credentials_change() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([true, true, false], now);
+        let mut m = Monitor::new([true, true, false, false], now);
         let jobs = m.plan(now);
         assert!(complete(&mut m, &jobs[0], Err(PollError::AuthRequired), now, wall).notify_auth);
         complete(&mut m, &jobs[1], Ok(usage(90.0)), now, wall);
@@ -732,7 +736,7 @@ mod tests {
     fn failed_refresh_keeps_cached_data_and_pending_manual_request_survives_completion() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([false, true, false], now);
+        let mut m = Monitor::new([false, true, false, false], now);
         let job = m.plan(now).remove(0);
         complete(&mut m, &job, Ok(usage(55.0)), now, wall);
         m.force(now, true);
@@ -751,7 +755,7 @@ mod tests {
     fn all_services_fail_independently_and_only_the_transient_failure_retries() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([true, true, true], now);
+        let mut m = Monitor::new([true, true, true, false], now);
         let jobs = m.plan(now);
         for (job, error) in jobs.iter().zip([
             PollError::AuthRequired,
@@ -772,7 +776,7 @@ mod tests {
     fn network_recovery_refreshes_failed_data_without_retrying_unchanged_auth() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([true, true, false], now);
+        let mut m = Monitor::new([true, true, false, false], now);
         let jobs = m.plan(now);
         complete(&mut m, &jobs[0], Err(PollError::AuthRequired), now, wall);
         complete(
@@ -799,7 +803,7 @@ mod tests {
     fn codex_auth_watch_uses_codex_credentials_and_manual_refresh_survives_a_recovery_event() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([false, true, false], now);
+        let mut m = Monitor::new([false, true, false, false], now);
         let job = m.plan(now).remove(0);
         let attempt = execute(
             &job,
@@ -824,7 +828,7 @@ mod tests {
     fn upcoming_reset_is_polled_on_time_instead_of_waiting_for_the_base_interval() {
         let now = Instant::now();
         let wall = SystemTime::now();
-        let mut m = Monitor::new([false, true, false], now);
+        let mut m = Monitor::new([false, true, false, false], now);
         let job = m.plan(now).remove(0);
         let mut data = usage(50.0);
         data.session.resets_at = Some(wall + Duration::from_secs(60));

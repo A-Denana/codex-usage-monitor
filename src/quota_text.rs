@@ -130,6 +130,28 @@ pub fn draw(
     } else {
         text(hdc, percentage, rect, DT_RIGHT);
     }
+    if reset == "*" {
+        // Compact taskbar cells have no countdown column. Keep the stale
+        // asterisk visible after the fixed percentage cells, in existing width.
+        unsafe {
+            let font = create_reset_font(scale(9));
+            let old_font = SelectObject(hdc, font);
+            let _ = SetTextColor(hdc, COLORREF(secondary.to_colorref()));
+            text(
+                hdc,
+                "*",
+                RECT {
+                    left: x + scale(percent_width(font_px)) - scale(4),
+                    right: x + width,
+                    ..rect
+                },
+                DT_RIGHT,
+            );
+            SelectObject(hdc, old_font);
+            let _ = DeleteObject(font);
+        }
+        return;
+    }
     if reset.is_empty() {
         return;
     }
@@ -157,6 +179,12 @@ pub fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_compact_text_can_be_placed_in_the_existing_text_column() {
+        assert_eq!(parts("54% *"), ("54%", "*"));
+        assert_eq!(parts("54% · 1h 3m"), ("54%", "1h 3m"));
+    }
 
     #[test]
     fn larger_text_widens_cells_without_moving_standard_columns() {

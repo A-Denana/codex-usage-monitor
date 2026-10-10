@@ -1,46 +1,49 @@
-name: Release
+name: Release Z.ai Portable Preview
 
 on:
   push:
     tags:
-      - "v*"
+      - 'v*-zai.*'
 
 permissions:
   contents: write
 
-env:
-  RELEASE_ASSET_NAME: codex-usage.exe
-
 jobs:
-  build:
+  release-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
-      - name: Build release binary
-        run: cargo build --release
+      - name: Format in temporary release workspace
+        run: cargo fmt --all
+      - name: Test
+        run: cargo test --all-targets --locked
+      - name: Build portable executable
+        run: cargo build --release --locked
 
-      - name: Prepare release assets
+      - name: Prepare portable release and checksum
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item target/release/codex-usage.exe dist/codex-usage.exe
-          Copy-Item scripts/install.ps1 dist/install.ps1
-          Copy-Item scripts/uninstall.ps1 dist/uninstall.ps1
-
           $hash = (Get-FileHash -Algorithm SHA256 dist/codex-usage.exe).Hash.ToLowerInvariant()
           "$hash  codex-usage.exe" | Set-Content -Encoding ascii dist/codex-usage.exe.sha256
 
-      - name: Create GitHub Release
+      - name: Publish Z.ai preview release
         uses: softprops/action-gh-release@v2
         with:
+          name: Codex Usage + Z.ai ${{ github.ref_name }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Portable Windows preview of the A-Denana Z.ai fork.
+            Displays Codex and Z.ai Coding Plan quotas side by side in the taskbar.
+            Download the EXE and its SHA256 checksum. Do not overwrite the upstream-installed app.
+            ZCode must be signed in locally for Z.ai quota access.
+            The preview has independent settings and auto-updates disabled.
           files: |
             dist/codex-usage.exe
             dist/codex-usage.exe.sha256
-            dist/install.ps1
-            dist/uninstall.ps1
-          generate_release_notes: true

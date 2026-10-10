@@ -17,6 +17,7 @@ mod theme;
 mod tray_icon;
 mod updater;
 mod window;
+mod zai;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

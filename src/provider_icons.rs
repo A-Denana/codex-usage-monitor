@@ -2,7 +2,8 @@ use std::sync::OnceLock;
 
 use windows::Win32::Foundation::{COLORREF, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, DeleteObject, DrawTextW, DT_CENTER, DT_SINGLELINE, DT_VCENTER, FillRect, GetTextColor, SetTextColor, HBRUSH, HDC,
+    CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetTextColor, SetTextColor, DT_CENTER,
+    DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, DrawIconEx, DI_NORMAL, HICON, LR_DEFAULTCOLOR,
@@ -31,14 +32,24 @@ pub fn zai_color(is_dark: bool) -> Color {
 pub fn draw(hdc: HDC, x: i32, y: i32, size: i32, provider: Provider) {
     if let Provider::Zai = provider {
         unsafe {
-            let mut rect = RECT { left: x, top: y, right: x + size, bottom: y + size };
+            let mut rect = RECT {
+                left: x,
+                top: y,
+                right: x + size,
+                bottom: y + size,
+            };
             let brush = CreateSolidBrush(COLORREF(Color::from_hex("#6D56B7").to_colorref()));
             FillRect(hdc, &rect, brush);
             let _ = DeleteObject(brush);
             let old = GetTextColor(hdc);
             let _ = SetTextColor(hdc, COLORREF(Color::from_hex("#FFFFFF").to_colorref()));
             let mut mark: Vec<u16> = "Z".encode_utf16().collect();
-            let _ = DrawTextW(hdc, &mut mark, &mut rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            let _ = DrawTextW(
+                hdc,
+                &mut mark,
+                &mut rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+            );
             let _ = SetTextColor(hdc, old);
         }
         return;

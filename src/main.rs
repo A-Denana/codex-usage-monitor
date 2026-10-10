@@ -5,7 +5,6 @@ mod localization;
 mod models;
 mod native_interop;
 mod poller;
-mod zai;
 mod provider_icons;
 mod provider_poll;
 mod quota_refresh;
@@ -18,6 +17,7 @@ mod theme;
 mod tray_icon;
 mod updater;
 mod window;
+mod zai;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

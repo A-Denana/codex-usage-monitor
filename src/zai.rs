@@ -40,7 +40,12 @@ struct QuotaLimit {
 }
 
 fn credentials_path() -> Option<PathBuf> {
-    Some(dirs::home_dir()?.join(".zcode").join("v2").join("credentials.json"))
+    Some(
+        dirs::home_dir()?
+            .join(".zcode")
+            .join("v2")
+            .join("credentials.json"),
+    )
 }
 
 pub fn credential_watch_signature() -> String {
@@ -49,7 +54,10 @@ pub fn credential_watch_signature() -> String {
     };
     match std::fs::metadata(path) {
         Ok(meta) => {
-            let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok());
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
             format!("zai|{}|{:?}", meta.len(), modified)
         }
         Err(_) => "zai|missing".to_owned(),
@@ -64,9 +72,9 @@ fn read_encrypted_key() -> Result<String, PollError> {
     }
     let values: HashMap<String, String> =
         serde_json::from_slice(&bytes).map_err(|_| PollError::RequestFailed)?;
-    let mut keys = values.iter().filter(|(name, _)| {
-        name.contains(CREDENTIAL_ACCOUNT) && name.ends_with(CREDENTIAL_SUFFIX)
-    });
+    let mut keys = values
+        .iter()
+        .filter(|(name, _)| name.contains(CREDENTIAL_ACCOUNT) && name.ends_with(CREDENTIAL_SUFFIX));
     let (_, key) = keys.next().ok_or(PollError::NoCredentials)?;
     if keys.next().is_some() {
         return Err(PollError::RequestFailed);
@@ -108,8 +116,15 @@ fn b64url_decode(text: &str) -> Option<Vec<u8>> {
     Some(result)
 }
 
-fn decode_credential(stored: &str, home: &str, user: &str, custom: Option<&str>) -> Result<String, PollError> {
-    let encoded = stored.strip_prefix(ENCRYPTED_PREFIX).ok_or(PollError::AuthRequired)?;
+fn decode_credential(
+    stored: &str,
+    home: &str,
+    user: &str,
+    custom: Option<&str>,
+) -> Result<String, PollError> {
+    let encoded = stored
+        .strip_prefix(ENCRYPTED_PREFIX)
+        .ok_or(PollError::AuthRequired)?;
     let mut components = encoded.split('.');
     let iv = b64url_decode(components.next().ok_or(PollError::AuthRequired)?)
         .ok_or(PollError::AuthRequired)?;
@@ -121,7 +136,8 @@ fn decode_credential(stored: &str, home: &str, user: &str, custom: Option<&str>)
         return Err(PollError::AuthRequired);
     }
 
-    let secret = custom.filter(|value| !value.trim().is_empty())
+    let secret = custom
+        .filter(|value| !value.trim().is_empty())
         .map(|value| value.trim().to_owned())
         .unwrap_or_else(|| format!("zcode-credential-fallback:win32:{home}:{user}"));
     let mut key = Sha256::digest(secret.as_bytes());
@@ -150,7 +166,8 @@ fn section(limit: QuotaLimit) -> Result<UsageSection, PollError> {
     if !limit.percentage.is_finite() || !(0.0..=100.0).contains(&limit.percentage) {
         return Err(PollError::RequestFailed);
     }
-    let resets_at = limit.next_reset_time
+    let resets_at = limit
+        .next_reset_time
         .and_then(|ms| UNIX_EPOCH.checked_add(Duration::from_millis(ms)));
     Ok(UsageSection {
         percentage: limit.percentage,
@@ -194,7 +211,8 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(15))
         .build();
-    let response = agent.get(QUOTA_URL)
+    let response = agent
+        .get(QUOTA_URL)
         .set("Authorization", &format!("Bearer {key}"))
         .call()
         .map_err(|error| match error {
@@ -216,13 +234,16 @@ mod tests {
 
     #[test]
     fn parses_realistic_credit_limits_by_window_unit() {
-        let payload: QuotaEnvelope = serde_json::from_str(r#"{
+        let payload: QuotaEnvelope = serde_json::from_str(
+            r#"{
             "code": 200, "success": true, "data": { "limits": [
                 {"type":"CREDIT_LIMIT", "unit":6, "percentage":73, "remaining":2608,
                  "nextResetTime":1791974062984},
                 {"type":"CREDIT_LIMIT", "unit":3, "percentage":28, "remaining":1431,
                  "nextResetTime":1791641989488}
-            ]}}"#).unwrap();
+            ]}}"#,
+        )
+        .unwrap();
         let data = parse_quota(payload).unwrap();
         assert_eq!(data.session.percentage, 28.0);
         assert_eq!(data.weekly.percentage, 73.0);
@@ -231,23 +252,26 @@ mod tests {
 
     #[test]
     fn rejects_body_auth_failure_even_when_http_is_ok() {
-        let payload: QuotaEnvelope = serde_json::from_str(
-            r#"{"code":401,"success":false}"#).unwrap();
+        let payload: QuotaEnvelope =
+            serde_json::from_str(r#"{"code":401,"success":false}"#).unwrap();
         assert_eq!(parse_quota(payload).unwrap_err(), PollError::AuthRequired);
     }
 
     #[test]
     fn rejects_missing_weekly_instead_of_displaying_zero_usage() {
-        let payload: QuotaEnvelope = serde_json::from_str(r#"{
+        let payload: QuotaEnvelope = serde_json::from_str(
+            r#"{
             "code":200,"success":true,"data":{"limits":[
                 {"type":"CREDIT_LIMIT","unit":3,"percentage":25}
-            ]}}"#).unwrap();
+            ]}}"#,
+        )
+        .unwrap();
         assert_eq!(parse_quota(payload).unwrap_err(), PollError::RequestFailed);
     }
 
     #[test]
     fn base64url_round_trip_parts() {
-        assert_eq!(b64url_decode("AQIDBA"), Some(vec![1,2,3,4]));
+        assert_eq!(b64url_decode("AQIDBA"), Some(vec![1, 2, 3, 4]));
         assert_eq!(b64url_decode("AQIDBA=="), None);
     }
 
@@ -258,9 +282,12 @@ mod tests {
         let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
         let iv = [7u8; 12];
         let mut contents = b"part1.part2".to_vec();
-        let tag = cipher.encrypt_in_place_detached(Nonce::from_slice(&iv), b"", &mut contents).unwrap();
+        let tag = cipher
+            .encrypt_in_place_detached(Nonce::from_slice(&iv), b"", &mut contents)
+            .unwrap();
         fn url64(bytes: &[u8]) -> String {
-            const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            const CHARS: &[u8] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
             let mut result = String::new();
             let mut value = 0u32;
             let mut bits = 0;
@@ -273,10 +300,15 @@ mod tests {
                     value &= (1 << bits) - 1;
                 }
             }
-            if bits > 0 { result.push(CHARS[(value << (6 - bits)) as usize] as char); }
+            if bits > 0 {
+                result.push(CHARS[(value << (6 - bits)) as usize] as char);
+            }
             result
         }
         let stored = format!("enc:v1:{}.{}.{}", url64(&iv), url64(&tag), url64(&contents));
-        assert_eq!(decode_credential(&stored, "C:\\Users\\Demo", "Demo", None).unwrap(), "part1.part2");
+        assert_eq!(
+            decode_credential(&stored, "C:\\Users\\Demo", "Demo", None).unwrap(),
+            "part1.part2"
+        );
     }
 }

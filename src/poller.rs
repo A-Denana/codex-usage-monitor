@@ -577,7 +577,9 @@ pub fn credential_watch_snapshot(mode: CredentialWatchMode) -> CredentialWatchSn
             .map(|creds| vec![creds.source])
             .unwrap_or_else(all_known_credential_sources),
         CredentialWatchMode::AllSources => all_known_credential_sources(),
-        CredentialWatchMode::Antigravity | CredentialWatchMode::Codex | CredentialWatchMode::Zai => unreachable!(),
+        CredentialWatchMode::Antigravity
+        | CredentialWatchMode::Codex
+        | CredentialWatchMode::Zai => unreachable!(),
     };
 
     let mut snapshot: CredentialWatchSnapshot = sources

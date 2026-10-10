@@ -1,4 +1,4 @@
-name: Release Z.ai Portable Preview
+name: Release Z.ai (Portable + Installer)
 
 on:
   push:
@@ -17,33 +17,62 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Format in temporary release workspace
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $line = Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+          if (-not $line) { throw 'Missing Cargo version' }
+          $version = $line.Matches[0].Groups[1].Value
+          if ($tag -ne "v$version") { throw "Tag $tag does not match $version" }
+
+      - name: Format temporary workspace
         run: cargo fmt --all
-      - name: Test
+      - name: Run tests
         run: cargo test --all-targets --locked
-      - name: Build portable executable
+      - name: Build Rust EXE
         run: cargo build --release --locked
 
-      - name: Prepare portable release and checksum
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey install failed: $LASTEXITCODE" }
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "ISCC.exe missing: $iscc" }
+          & $iscc "/DMyAppVersion=$version" 'installer\codex-usage-zai.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath "dist\CodexUsageZai-Setup-$version.exe")) { throw 'Missing installer output' }
+
+      - name: Prepare portable build and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item target/release/codex-usage.exe dist/codex-usage.exe
-          $hash = (Get-FileHash -Algorithm SHA256 dist/codex-usage.exe).Hash.ToLowerInvariant()
-          "$hash  codex-usage.exe" | Set-Content -Encoding ascii dist/codex-usage.exe.sha256
+          foreach ($asset in (Get-ChildItem dist -Filter '*.exe')) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset.FullName).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)" | Set-Content -Encoding ascii "$($asset.FullName).sha256"
+          }
 
-      - name: Publish Z.ai preview release
+      - name: Publish public beta
         uses: softprops/action-gh-release@v2
         with:
           name: Codex Usage + Z.ai ${{ github.ref_name }}
           prerelease: true
           make_latest: false
           body: |
-            Portable Windows preview of the A-Denana Z.ai fork.
-            Displays Codex and Z.ai Coding Plan quotas side by side in the taskbar.
-            Download the EXE and its SHA256 checksum. Do not overwrite the upstream-installed app.
-            ZCode must be signed in locally for Z.ai quota access.
-            The preview has independent settings and auto-updates disabled.
+            Windows beta with a per-user Inno Setup installer and a portable EXE.
+            Verify SHA256 before use; the installer is currently unsigned.
+            Quit running monitor instances before installation.
+            Setup uses its own directory and does not modify ZCode credentials.
+            Uninstall preserves settings. Automatic in-app updates are disabled.
           files: |
             dist/codex-usage.exe
             dist/codex-usage.exe.sha256
+            dist/CodexUsageZai-Setup-*.exe
+            dist/CodexUsageZai-Setup-*.exe.sha256

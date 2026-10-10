@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "codex-usage"
-version = "1.10.0-zai.1"
+version = "1.10.0-zai.2"
 dependencies = [
  "aes-gcm",
  "dirs",

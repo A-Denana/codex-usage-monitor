@@ -1,6 +1,6 @@
 [package]
 name = "codex-usage"
-version = "1.10.0-zai.1"
+version = "1.10.0-zai.2"
 edition = "2021"
 license = "MIT"
 description = "Codex Usage"
@@ -8,13 +8,13 @@ homepage = "https://github.com/A-Denana/codex-usage-monitor"
 repository = "https://github.com/A-Denana/codex-usage-monitor"
 
 [package.metadata.winres]
-CompanyName = "Ray"
-ProductName = "Codex Usage"
-FileDescription = "Lightweight Codex usage monitor for Windows"
+CompanyName = "A-Denana"
+ProductName = "Codex Usage + Z.ai"
+FileDescription = "Windows taskbar quota monitor for Codex and Z.ai Coding Plan"
 OriginalFilename = "codex-usage.exe"
 InternalName = "CodexUsage"
 Comments = "Derived from Claude Code Usage Monitor under the MIT License"
-LegalCopyright = "Original copyright (C) 2026 Code Zeno Pty Ltd; modifications (C) 2026 Ray"
+LegalCopyright = "Original (C) 2026 Code Zeno Pty Ltd; modifications (C) 2026 Ray and A-Denana"
 
 [dependencies]
 ureq = { version = "2", default-features = false, features = ["native-tls", "json", "proxy-from-env"] }

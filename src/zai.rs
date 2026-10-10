@@ -2,7 +2,7 @@
 //! Never print credentials, decrypted plaintext or server response bodies.
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce, Tag};

@@ -2299,6 +2299,10 @@ fn render_layered() {
         antigravity_session_text,
         antigravity_weekly_pct,
         antigravity_weekly_text,
+        zai_session_pct,
+        zai_session_text,
+        zai_weekly_pct,
+        zai_weekly_text,
         show_claude_code,
         show_codex,
         show_antigravity,
@@ -2327,6 +2331,10 @@ fn render_layered() {
                 s.antigravity_session_text.clone(),
                 s.antigravity_weekly_percent,
                 s.antigravity_weekly_text.clone(),
+                s.zai_session_percent,
+                s.zai_session_text.clone(),
+                s.zai_weekly_percent,
+                s.zai_weekly_text.clone(),
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
@@ -2362,6 +2370,7 @@ fn render_layered() {
     let (bg_color, text_color, track) = appearance_colors(appearance, is_dark);
     let codex_accent = provider_icons::codex_color(appearance.is_dark(is_dark));
     let antigravity_accent = antigravity_accent_color();
+    let zai_accent = provider_icons::zai_color(appearance.is_dark(is_dark));
 
     unsafe {
         let screen_dc = GetDC(hwnd);
@@ -2420,6 +2429,10 @@ fn render_layered() {
             &antigravity_session_text,
             antigravity_weekly_pct,
             &antigravity_weekly_text,
+            zai_session_pct,
+            &zai_session_text,
+            zai_weekly_pct,
+            &zai_weekly_text,
             show_claude_code,
             show_codex,
             show_antigravity,
@@ -2428,6 +2441,7 @@ fn render_layered() {
             show_weekly_window,
             &codex_accent,
             &antigravity_accent,
+            &zai_accent,
         );
 
         // System mode blends with the taskbar. High contrast modes use a solid
@@ -2506,6 +2520,10 @@ fn paint_content(
     antigravity_session_text: &str,
     antigravity_weekly_pct: f64,
     antigravity_weekly_text: &str,
+    zai_session_pct: f64,
+    zai_session_text: &str,
+    zai_weekly_pct: f64,
+    zai_weekly_text: &str,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
@@ -2514,6 +2532,7 @@ fn paint_content(
     show_weekly_window: bool,
     codex_accent: &Color,
     antigravity_accent: &Color,
+    zai_accent: &Color,
 ) {
     unsafe {
         let is_dark = appearance.is_dark(is_dark);
@@ -2523,7 +2542,12 @@ fn paint_content(
         let codex_weekly_pct = usage_percent_for_display(language, codex_weekly_pct);
         let antigravity_session_pct = usage_percent_for_display(language, antigravity_session_pct);
         let antigravity_weekly_pct = usage_percent_for_display(language, antigravity_weekly_pct);
-        let (label_width, text_width) = usage_layout_widths(language, appearance);
+        let zai_session_pct = usage_percent_for_display(language, zai_session_pct);
+        let zai_weekly_pct = usage_percent_for_display(language, zai_weekly_pct);
+        let (label_width, text_width) = usage_layout_widths_for(
+            active_model_count(show_claude_code, show_codex, show_antigravity, show_zai),
+            language, appearance,
+        );
 
         let client_rect = RECT {
             left: 0,
@@ -2602,6 +2626,13 @@ fn paint_content(
         }
         if show_codex {
             provider_icons::draw(hdc, icon_x, icon_y, icon_size, Provider::Codex);
+            icon_x += model_width;
+        }
+        if show_antigravity {
+            icon_x += model_width;
+        }
+        if show_zai {
+            provider_icons::draw(hdc, icon_x, icon_y, icon_size, Provider::Zai);
         }
 
         if show_session_window {
@@ -2630,6 +2661,7 @@ fn paint_content(
                 accent,
                 codex_accent,
                 antigravity_accent,
+                zai_accent,
                 track,
                 label_width,
                 text_width,
@@ -2661,6 +2693,7 @@ fn paint_content(
                 accent,
                 codex_accent,
                 antigravity_accent,
+                zai_accent,
                 track,
                 label_width,
                 text_width,
@@ -4489,6 +4522,10 @@ fn paint(hdc: HDC, hwnd: HWND) {
         antigravity_session_text,
         antigravity_weekly_pct,
         antigravity_weekly_text,
+        zai_session_pct,
+        zai_session_text,
+        zai_weekly_pct,
+        zai_weekly_text,
         show_claude_code,
         show_codex,
         show_antigravity,
@@ -4515,6 +4552,10 @@ fn paint(hdc: HDC, hwnd: HWND) {
                 s.antigravity_session_text.clone(),
                 s.antigravity_weekly_percent,
                 s.antigravity_weekly_text.clone(),
+                s.zai_session_percent,
+                s.zai_session_text.clone(),
+                s.zai_weekly_percent,
+                s.zai_weekly_text.clone(),
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
@@ -4530,6 +4571,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
     let (bg_color, text_color, track) = appearance_colors(appearance, is_dark);
     let codex_accent = provider_icons::codex_color(appearance.is_dark(is_dark));
     let antigravity_accent = antigravity_accent_color();
+    let zai_accent = provider_icons::zai_color(appearance.is_dark(is_dark));
 
     unsafe {
         let mut client_rect = RECT::default();
@@ -4569,6 +4611,10 @@ fn paint(hdc: HDC, hwnd: HWND) {
             &antigravity_session_text,
             antigravity_weekly_pct,
             &antigravity_weekly_text,
+            zai_session_pct,
+            &zai_session_text,
+            zai_weekly_pct,
+            &zai_weekly_text,
             show_claude_code,
             show_codex,
             show_antigravity,
@@ -4577,6 +4623,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
             show_weekly_window,
             &codex_accent,
             &antigravity_accent,
+            &zai_accent,
         );
 
         let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
@@ -4601,6 +4648,8 @@ fn draw_row(
     codex_text: &str,
     antigravity_percent: f64,
     antigravity_text: &str,
+    zai_percent: f64,
+    zai_text: &str,
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
@@ -4608,12 +4657,14 @@ fn draw_row(
     claude_accent: &Color,
     codex_accent: &Color,
     antigravity_accent: &Color,
+    zai_accent: &Color,
     track: &Color,
     label_width: i32,
     text_width: i32,
 ) {
     let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
     let segment_count = row_bar_segment_count(active_models);
+    let compact = active_models > 1;
     let use_model_text_colors = active_models > 1 && appearance.palette == Palette::System;
     let is_dark = appearance.is_dark(is_dark);
     let claude_value_color = if use_model_text_colors {
@@ -4622,6 +4673,7 @@ fn draw_row(
         *text_color
     };
     let codex_value_color = provider_icons::codex_color(is_dark);
+    let zai_value_color = provider_icons::zai_color(is_dark);
     let antigravity_value_color = if use_model_text_colors {
         antigravity_usage_text_color(is_dark)
     } else {
@@ -4652,7 +4704,7 @@ fn draw_row(
                 y,
                 segment_count,
                 claude_percent,
-                claude_text,
+                if compact { compact_quota_value(claude_text) } else { claude_text },
                 claude_accent,
                 track,
                 &claude_value_color,
@@ -4669,7 +4721,7 @@ fn draw_row(
                 y,
                 segment_count,
                 codex_percent,
-                codex_text,
+                if compact { compact_quota_value(codex_text) } else { codex_text },
                 codex_accent,
                 track,
                 &codex_value_color,
@@ -4686,13 +4738,24 @@ fn draw_row(
                 y,
                 segment_count,
                 antigravity_percent,
-                antigravity_text,
+                if compact { compact_quota_value(antigravity_text) } else { antigravity_text },
                 antigravity_accent,
+                zai_accent,
                 track,
                 &antigravity_value_color,
                 text_width,
                 is_dark,
                 appearance,
+            );
+            model_x += model_usage_width(segment_count, text_width) + sc(MODEL_RIGHT_MARGIN);
+        }
+        if show_zai {
+            draw_usage_bar(
+                hdc,
+                model_x + sc(provider_icons::SIZE + provider_icons::RIGHT_MARGIN),
+                y, segment_count, zai_percent, zai_text,
+                zai_accent, track, &zai_value_color,
+                text_width, is_dark, appearance,
             );
         }
     }

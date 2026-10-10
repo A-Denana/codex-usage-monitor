@@ -208,9 +208,9 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
     let user = std::env::var("USERNAME").map_err(|_| PollError::AuthRequired)?;
     let custom = std::env::var("ZCODE_CREDENTIAL_SECRET").ok();
     let key = decode_credential(&stored, home, &user, custom.as_deref())?;
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(15))
-        .build();
+    // Match the existing providers: ureq is built without default TLS features,
+    // so HTTPS requires the native Windows TLS connector configured in build_agent.
+    let agent = crate::poller::build_agent()?;
     let response = agent
         .get(QUOTA_URL)
         .set("Authorization", &format!("Bearer {key}"))

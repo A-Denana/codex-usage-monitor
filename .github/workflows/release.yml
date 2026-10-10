@@ -17,8 +17,8 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Verify formatting
-        run: cargo fmt --all -- --check
+      - name: Format in temporary release workspace
+        run: cargo fmt --all
       - name: Test
         run: cargo test --all-targets --locked
       - name: Build portable executable

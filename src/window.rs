@@ -622,7 +622,6 @@ fn save_state_settings() {
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
-                s.show_zai,
             show_zai: s.show_zai,
             show_session_window: s.show_session_window,
             show_weekly_window: s.show_weekly_window,
@@ -2006,7 +2005,6 @@ pub fn run() {
             settings.show_codex,
             settings.show_antigravity,
             settings.show_zai,
-                s.show_zai,
         );
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
@@ -2079,8 +2077,6 @@ pub fn run() {
                 show_claude_code: settings.show_claude_code,
                 show_codex: settings.show_codex,
                 show_antigravity: settings.show_antigravity,
-            settings.show_zai,
-                s.show_zai,
                 show_zai: settings.show_zai,
                 show_session_window: settings.show_session_window,
                 show_weekly_window: settings.show_weekly_window,
@@ -2095,7 +2091,6 @@ pub fn run() {
                         settings.show_codex,
                         settings.show_antigravity,
             settings.show_zai,
-                s.show_zai,
                     ],
                     Instant::now(),
                 ),
@@ -3723,6 +3718,7 @@ unsafe extern "system" fn wnd_proc(
                                     if s.claude_code_available
                                         && (s.show_codex
                                             || s.show_antigravity
+                                            || s.show_zai
                                             || !s.show_claude_code)
                                     {
                                         s.show_claude_code = !s.show_claude_code;
@@ -3906,6 +3902,7 @@ fn show_context_menu(hwnd: HWND) {
                     false,
                     false,
                     false,
+                    true,
                     true,
                     true,
                     0,

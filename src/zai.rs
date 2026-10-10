@@ -211,6 +211,20 @@ fn parse_quota(body: QuotaEnvelope) -> Result<UsageData, PollError> {
     })
 }
 
+fn classify_quota_transport_error(error: ureq::Error) -> PollError {
+    match error {
+        ureq::Error::Status(401 | 403, _) => PollError::AuthRequired,
+        ureq::Error::Status(429, response) => PollError::RateLimited(
+            response
+                .header("Retry-After")
+                .and_then(|hint| crate::retry_after::delay_ms(hint, std::time::SystemTime::now())),
+        ),
+        ureq::Error::Status(500..=599, _) => PollError::ServerError,
+        ureq::Error::Transport(_) => PollError::NetworkUnavailable,
+        _ => PollError::RequestFailed,
+    }
+}
+
 pub fn poll_zai() -> Result<UsageData, PollError> {
     let stored = read_encrypted_key()?;
     let home = dirs::home_dir().ok_or(PollError::NoCredentials)?;
@@ -228,13 +242,7 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
         .get(QUOTA_URL)
         .set("Authorization", auth.as_str())
         .call()
-        .map_err(|error| match error {
-            ureq::Error::Status(401 | 403, _) => PollError::AuthRequired,
-            ureq::Error::Status(429, _) => PollError::RateLimited(None),
-            ureq::Error::Status(500..=599, _) => PollError::ServerError,
-            ureq::Error::Transport(_) => PollError::NetworkUnavailable,
-            _ => PollError::RequestFailed,
-        })?;
+        .map_err(classify_quota_transport_error)?;
     // Drop the decrypted API key as soon as the request has been made.
     drop(auth);
     drop(key);
@@ -245,6 +253,15 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_retry_after_window_from_rate_limit_responses() {
+        let response: ureq::Response = "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 180\r\n\r\n"
+            .parse()
+            .unwrap();
+        let err = ureq::Error::Status(429, response);
+        assert_eq!(classify_quota_transport_error(err), PollError::RateLimited(Some(180_000)));
+    }
 
     #[test]
     fn parses_realistic_credit_limits_by_window_unit() {

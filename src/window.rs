@@ -1842,11 +1842,22 @@ fn usage_layout_widths_for(
     }
 }
 
-fn compact_quota_value(value: &str) -> &str {
-    value
-        .find('%')
-        .map(|index| &value[..=index])
-        .unwrap_or(value)
+fn next_zai_visibility(current: bool, other_provider_visible: bool) -> bool {
+    if other_provider_visible || !current {
+        !current
+    } else {
+        current
+    }
+}
+
+fn compact_quota_value(value: &str) -> std::borrow::Cow<'_, str> {
+    match value.find('%') {
+        Some(index) if value.ends_with(" *") => {
+            std::borrow::Cow::Owned(format!("{} *", &value[..=index]))
+        }
+        Some(index) => std::borrow::Cow::Borrowed(&value[..=index]),
+        None => std::borrow::Cow::Borrowed(value),
+    }
 }
 
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
@@ -2868,6 +2879,47 @@ fn do_poll(send_hwnd: SendHwnd) {
     );
 }
 
+fn fresh_provider_usage(id: usize, data: Option<crate::models::UsageData>) -> AppUsageData {
+    let mut fresh = AppUsageData::default();
+    match id {
+        0 => fresh.claude_code = data,
+        1 => fresh.codex = data,
+        2 => fresh.antigravity = data,
+        3 => fresh.zai = data,
+        _ => {}
+    }
+    fresh
+}
+
+fn provider_auth_notice(
+    id: usize,
+    strings: Strings,
+) -> (tray_icon::TrayIconKind, &'static str, &'static str) {
+    match id {
+        0 => (
+            tray_icon::TrayIconKind::Claude,
+            strings.token_expired_title,
+            strings.token_expired_body,
+        ),
+        1 => (
+            tray_icon::TrayIconKind::Codex,
+            strings.codex_token_expired_title,
+            strings.codex_token_expired_body,
+        ),
+        2 => (
+            tray_icon::TrayIconKind::Antigravity,
+            strings.antigravity_token_expired_title,
+            strings.antigravity_token_expired_body,
+        ),
+        3 => (
+            tray_icon::TrayIconKind::Zai,
+            "Z.ai credentials required",
+            "Check your ZCode Coding Plan sign-in and refresh the quota monitor.",
+        ),
+        _ => unreachable!("unknown provider"),
+    }
+}
+
 fn complete_provider_poll(
     send_hwnd: SendHwnd,
     job: &provider_poll::Job,
@@ -2895,15 +2947,11 @@ fn complete_provider_poll(
             }
             return;
         }
-        let mut fresh = AppUsageData::default();
-        if completion.successful {
-            let data = s.monitor.services[job.id].data.clone();
-            match job.id {
-                0 => fresh.claude_code = data,
-                1 => fresh.codex = data,
-                _ => fresh.antigravity = data,
-            }
-        }
+        let fresh = if completion.successful {
+            fresh_provider_usage(job.id, s.monitor.services[job.id].data.clone())
+        } else {
+            AppUsageData::default()
+        };
         let alerts = collect_low_quota_alerts(s, &fresh);
         let cached = s.monitor.cached();
         for (usage, session, weekly) in [
@@ -2942,26 +2990,9 @@ fn complete_provider_poll(
             "provider poll completed id={} error={:?} interval_ms={}",
             job.id, service.error, service.interval_ms
         ));
-        let notice = completion.notify_auth.then(|| {
-            let strings = s.language.strings();
-            match job.id {
-                0 => (
-                    tray_icon::TrayIconKind::Claude,
-                    strings.token_expired_title,
-                    strings.token_expired_body,
-                ),
-                1 => (
-                    tray_icon::TrayIconKind::Codex,
-                    strings.codex_token_expired_title,
-                    strings.codex_token_expired_body,
-                ),
-                _ => (
-                    tray_icon::TrayIconKind::Antigravity,
-                    strings.antigravity_token_expired_title,
-                    strings.antigravity_token_expired_body,
-                ),
-            }
-        });
+        let notice = completion
+            .notify_auth
+            .then(|| provider_auth_notice(job.id, s.language.strings()));
         (alerts, notice)
     };
     for alert in &alerts {
@@ -3843,6 +3874,14 @@ unsafe extern "system" fn wnd_proc(
                                     {
                                         s.show_antigravity = !s.show_antigravity;
                                     }
+                                }
+                                IDM_MODEL_ZAI => {
+                                    s.show_zai = next_zai_visibility(
+                                        s.show_zai,
+                                        s.show_claude_code
+                                            || s.show_codex
+                                            || s.show_antigravity,
+                                    );
                                 }
                                 _ => {}
                             }
@@ -4747,6 +4786,26 @@ fn draw_row(
         active_model_count(show_claude_code, show_codex, show_antigravity, show_zai);
     let segment_count = row_bar_segment_count(active_models);
     let compact = active_models > 1;
+    let compact_claude = if compact {
+        compact_quota_value(claude_text)
+    } else {
+        std::borrow::Cow::Borrowed(claude_text)
+    };
+    let compact_codex = if compact {
+        compact_quota_value(codex_text)
+    } else {
+        std::borrow::Cow::Borrowed(codex_text)
+    };
+    let compact_antigravity = if compact {
+        compact_quota_value(antigravity_text)
+    } else {
+        std::borrow::Cow::Borrowed(antigravity_text)
+    };
+    let compact_zai = if compact {
+        compact_quota_value(zai_text)
+    } else {
+        std::borrow::Cow::Borrowed(zai_text)
+    };
     let use_model_text_colors = active_models > 1 && appearance.palette == Palette::System;
     let is_dark = appearance.is_dark(is_dark);
     let claude_value_color = if use_model_text_colors {
@@ -4786,11 +4845,7 @@ fn draw_row(
                 y,
                 segment_count,
                 claude_percent,
-                if compact {
-                    compact_quota_value(claude_text)
-                } else {
-                    claude_text
-                },
+                compact_claude.as_ref(),
                 claude_accent,
                 track,
                 &claude_value_color,
@@ -4807,11 +4862,7 @@ fn draw_row(
                 y,
                 segment_count,
                 codex_percent,
-                if compact {
-                    compact_quota_value(codex_text)
-                } else {
-                    codex_text
-                },
+                compact_codex.as_ref(),
                 codex_accent,
                 track,
                 &codex_value_color,
@@ -4828,11 +4879,7 @@ fn draw_row(
                 y,
                 segment_count,
                 antigravity_percent,
-                if compact {
-                    compact_quota_value(antigravity_text)
-                } else {
-                    antigravity_text
-                },
+                compact_antigravity.as_ref(),
                 antigravity_accent,
                 track,
                 &antigravity_value_color,
@@ -4849,11 +4896,7 @@ fn draw_row(
                 y,
                 segment_count,
                 zai_percent,
-                if compact {
-                    compact_quota_value(zai_text)
-                } else {
-                    zai_text
-                },
+                compact_zai.as_ref(),
                 zai_accent,
                 track,
                 &zai_value_color,
@@ -5299,6 +5342,31 @@ mod tests {
         };
         assert_eq!(format_local_system_time(local), "2026-07-17 18:30");
         assert_eq!(format_precise_reset_time(None), None);
+    }
+
+    #[test]
+    fn zai_menu_toggle_preserves_last_visible_provider() {
+        assert!(!next_zai_visibility(true, true));
+        assert!(next_zai_visibility(true, false));
+        assert!(next_zai_visibility(false, false));
+    }
+
+    #[test]
+    fn fresh_zai_completions_do_not_route_to_antigravity() {
+        let data = crate::models::UsageData::default();
+        let fresh = fresh_provider_usage(3, Some(data));
+        assert!(fresh.zai.is_some());
+        assert!(fresh.antigravity.is_none());
+        let notice = provider_auth_notice(3, LanguageId::English.strings());
+        assert!(matches!(notice.0, tray_icon::TrayIconKind::Zai));
+        assert!(notice.1.starts_with("Z.ai"));
+    }
+
+    #[test]
+    fn compact_percentage_retains_stale_marker_without_reset_countdown() {
+        assert_eq!(compact_quota_value("54% · 1h 15m").as_ref(), "54%");
+        assert_eq!(compact_quota_value("79% · 2d 3h *").as_ref(), "79% *");
+        assert_eq!(compact_quota_value("ERR").as_ref(), "ERR");
     }
 
     #[test]

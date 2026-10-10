@@ -330,8 +330,8 @@ fn lock_state() -> MutexGuard<'static, Option<AppState>> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-const SETTINGS_DIR: &str = "CodexUsage";
-const LEGACY_SETTINGS_DIR: &str = "ClaudeCodeUsageMonitor";
+const SETTINGS_DIR: &str = "CodexUsageZaiPreview";
+const LEGACY_SETTINGS_DIR: &str = "CodexUsageZaiPreviewLegacy";
 
 fn appdata_path(directory: &str) -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
@@ -1501,8 +1501,8 @@ fn begin_winget_update(hwnd: HWND) {
 }
 
 const STARTUP_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const STARTUP_REGISTRY_KEY: &str = "CodexUsage";
-const LEGACY_STARTUP_REGISTRY_KEY: &str = "ClaudeCodeUsageMonitor";
+const STARTUP_REGISTRY_KEY: &str = "CodexUsageZaiPreview";
+const LEGACY_STARTUP_REGISTRY_KEY: &str = "CodexUsageZaiPreviewLegacy";
 
 /// Returns true only if the startup registry value points to this executable.
 fn is_startup_enabled() -> bool {

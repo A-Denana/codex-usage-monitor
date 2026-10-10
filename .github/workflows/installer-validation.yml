@@ -1,9 +1,6 @@
 name: Validate Z.ai Installer
 
 on:
-  push:
-    branches:
-      - feat/zai-inno-installer
   workflow_dispatch:
 
 permissions:

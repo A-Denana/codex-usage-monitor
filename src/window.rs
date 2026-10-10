@@ -622,6 +622,7 @@ fn save_state_settings() {
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
+                s.show_zai,
             show_zai: s.show_zai,
             show_session_window: s.show_session_window,
             show_weekly_window: s.show_weekly_window,
@@ -2004,6 +2005,8 @@ pub fn run() {
             settings.show_claude_code,
             settings.show_codex,
             settings.show_antigravity,
+            settings.show_zai,
+                s.show_zai,
         );
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
@@ -2076,6 +2079,9 @@ pub fn run() {
                 show_claude_code: settings.show_claude_code,
                 show_codex: settings.show_codex,
                 show_antigravity: settings.show_antigravity,
+            settings.show_zai,
+                s.show_zai,
+                show_zai: settings.show_zai,
                 show_session_window: settings.show_session_window,
                 show_weekly_window: settings.show_weekly_window,
                 alert_threshold_percent: settings.alert_threshold_percent,
@@ -2088,6 +2094,8 @@ pub fn run() {
                         settings.show_claude_code,
                         settings.show_codex,
                         settings.show_antigravity,
+            settings.show_zai,
+                s.show_zai,
                     ],
                     Instant::now(),
                 ),
@@ -2204,7 +2212,7 @@ fn update_quota_tooltips() {
         if !s.dragging {
             let chinese = s.language == LanguageId::SimplifiedChinese;
             let count = active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity);
-            let (label_width, text_width) = usage_layout_widths(s.language, s.appearance);
+            let (label_width, text_width) = usage_layout_widths_for(count, s.language, s.appearance);
             let width = model_usage_width(row_bar_segment_count(count), text_width);
             let mut left = sc(LEFT_DIVIDER_W)
                 + sc(DIVIDER_RIGHT_MARGIN)
@@ -2228,10 +2236,12 @@ fn update_quota_tooltips() {
                 (
                     2,
                     s.show_antigravity,
+                s.show_zai,
                     "Antigravity",
                     &s.antigravity_session_text,
                     &s.antigravity_weekly_text,
                 ),
+                (3, s.show_zai, "Z.ai", &s.zai_session_text, &s.zai_weekly_text),
             ] {
                 if !visible {
                     continue;
@@ -2297,6 +2307,7 @@ fn render_layered() {
         show_claude_code,
         show_codex,
         show_antigravity,
+        show_zai,
         show_session_window,
         show_weekly_window,
     ) = {
@@ -2324,6 +2335,7 @@ fn render_layered() {
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
+                s.show_zai,
                 s.show_session_window,
                 s.show_weekly_window,
             ),
@@ -2416,6 +2428,7 @@ fn render_layered() {
             show_claude_code,
             show_codex,
             show_antigravity,
+        show_zai,
             show_session_window,
             show_weekly_window,
             &codex_accent,
@@ -2618,6 +2631,7 @@ fn paint_content(
                 show_claude_code,
                 show_codex,
                 show_antigravity,
+        show_zai,
                 accent,
                 codex_accent,
                 antigravity_accent,
@@ -2648,6 +2662,7 @@ fn paint_content(
                 show_claude_code,
                 show_codex,
                 show_antigravity,
+        show_zai,
                 accent,
                 codex_accent,
                 antigravity_accent,
@@ -2702,7 +2717,7 @@ fn request_poll(hwnd: SendHwnd, force: bool) {
     {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            let enabled = [s.show_claude_code, s.show_codex, s.show_antigravity];
+            let enabled = [s.show_claude_code, s.show_codex, s.show_antigravity, s.show_zai];
             s.monitor.configure(enabled, Instant::now());
             if force {
                 s.monitor.force(Instant::now(), true);
@@ -2814,6 +2829,7 @@ fn complete_provider_poll(
                 &mut s.antigravity_session_percent,
                 &mut s.antigravity_weekly_percent,
             ),
+            (cached.zai.as_ref(), &mut s.zai_session_percent, &mut s.zai_weekly_percent),
         ] {
             *session = usage.map_or(0.0, |u| u.session.percentage);
             *weekly = usage.map_or(0.0, |u| u.weekly.percentage);
@@ -3698,7 +3714,7 @@ unsafe extern "system" fn wnd_proc(
                     }
                     save_state_settings();
                 }
-                IDM_MODEL_CLAUDE_CODE | IDM_MODEL_CODEX | IDM_MODEL_ANTIGRAVITY => {
+                IDM_MODEL_CLAUDE_CODE | IDM_MODEL_CODEX | IDM_MODEL_ANTIGRAVITY | IDM_MODEL_ZAI => {
                     {
                         let mut state = lock_state();
                         if let Some(s) = state.as_mut() {
@@ -3713,12 +3729,12 @@ unsafe extern "system" fn wnd_proc(
                                     }
                                 }
                                 IDM_MODEL_CODEX => {
-                                    if s.show_claude_code || s.show_antigravity || !s.show_codex {
+                                    if s.show_claude_code || s.show_antigravity || s.show_zai || !s.show_codex {
                                         s.show_codex = !s.show_codex;
                                     }
                                 }
                                 IDM_MODEL_ANTIGRAVITY => {
-                                    if s.show_claude_code || s.show_codex || !s.show_antigravity {
+                                    if s.show_claude_code || s.show_codex || s.show_zai || !s.show_antigravity {
                                         s.show_antigravity = !s.show_antigravity;
                                     }
                                 }
@@ -3730,6 +3746,8 @@ unsafe extern "system" fn wnd_proc(
                             s.codex_weekly_text = "...".to_string();
                             s.antigravity_session_text = "...".to_string();
                             s.antigravity_weekly_text = "...".to_string();
+                            s.zai_session_text = "...".to_string();
+                            s.zai_weekly_text = "...".to_string();
                         }
                     }
                     save_state_settings();
@@ -3850,6 +3868,7 @@ fn show_context_menu(hwnd: HWND) {
             claude_code_available,
             show_codex,
             show_antigravity,
+        show_zai,
             show_session_window,
             show_weekly_window,
             alert_threshold_percent,
@@ -3869,6 +3888,7 @@ fn show_context_menu(hwnd: HWND) {
                     s.claude_code_available,
                     s.show_codex,
                     s.show_antigravity,
+                s.show_zai,
                     s.show_session_window,
                     s.show_weekly_window,
                     s.alert_threshold_percent,
@@ -3997,6 +4017,13 @@ fn show_context_menu(hwnd: HWND) {
             PCWSTR::from_raw(antigravity_model.as_ptr()),
         );
 
+        let zai_label = native_interop::wide_str("Z.ai Coding Plan");
+        let _ = AppendMenuW(
+            models_menu,
+            if show_zai { MF_CHECKED } else { MENU_ITEM_FLAGS(0) },
+            IDM_MODEL_ZAI as usize,
+            PCWSTR::from_raw(zai_label.as_ptr()),
+        );
         let models_label = native_interop::wide_str(strings.models);
         let _ = AppendMenuW(
             menu,
@@ -4468,6 +4495,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
         show_claude_code,
         show_codex,
         show_antigravity,
+        show_zai,
         show_session_window,
         show_weekly_window,
     ) = {
@@ -4493,6 +4521,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
                 s.show_claude_code,
                 s.show_codex,
                 s.show_antigravity,
+                s.show_zai,
                 s.show_session_window,
                 s.show_weekly_window,
             ),
@@ -4546,6 +4575,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
             show_claude_code,
             show_codex,
             show_antigravity,
+        show_zai,
             show_session_window,
             show_weekly_window,
             &codex_accent,
@@ -5082,6 +5112,7 @@ mod tests {
             show_claude_code: true,
             show_codex: false,
             show_antigravity: false,
+            show_zai: false,
             ..SettingsFile::default()
         };
 

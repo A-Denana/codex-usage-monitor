@@ -5,6 +5,7 @@ mod localization;
 mod models;
 mod native_interop;
 mod poller;
+mod zai;
 mod provider_icons;
 mod provider_poll;
 mod quota_refresh;

@@ -64,6 +64,7 @@ pub enum CredentialWatchMode {
     AllSources,
     Antigravity,
     Codex,
+    Zai,
 }
 
 pub type CredentialWatchSnapshot = Vec<String>;
@@ -204,6 +205,7 @@ pub fn poll_provider(id: usize) -> Result<UsageData, PollError> {
         0 => poll_claude_code(),
         1 => poll_codex(),
         2 => poll_antigravity(),
+        3 => crate::zai::poll_zai(),
         _ => Err(PollError::RequestFailed),
     }
 }
@@ -563,6 +565,9 @@ pub fn credential_watch_snapshot(mode: CredentialWatchMode) -> CredentialWatchSn
             .map(|p| vec![windows_credential_watch_signature(&p)])
             .unwrap_or_default();
     }
+    if mode == CredentialWatchMode::Zai {
+        return vec![crate::zai::credential_watch_signature()];
+    }
     if mode == CredentialWatchMode::Antigravity {
         return vec![antigravity_credential_watch_signature()];
     }
@@ -572,7 +577,7 @@ pub fn credential_watch_snapshot(mode: CredentialWatchMode) -> CredentialWatchSn
             .map(|creds| vec![creds.source])
             .unwrap_or_else(all_known_credential_sources),
         CredentialWatchMode::AllSources => all_known_credential_sources(),
-        CredentialWatchMode::Antigravity | CredentialWatchMode::Codex => unreachable!(),
+        CredentialWatchMode::Antigravity | CredentialWatchMode::Codex | CredentialWatchMode::Zai => unreachable!(),
     };
 
     let mut snapshot: CredentialWatchSnapshot = sources

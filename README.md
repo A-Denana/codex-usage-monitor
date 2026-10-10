@@ -13,11 +13,11 @@ This animation shows the original segmented-bar design. Current builds let you c
 
 A lightweight native Windows taskbar widget for monitoring Codex and Z.ai Coding Plan usage side by side, with optional Claude Code and Google Antigravity support.
 
-> **This repository is the A-Denana Z.ai fork**, derived from [upstream-ray/codex-usage-monitor](https://github.com/upstream-ray/codex-usage-monitor). The custom version is distributed as a portable Windows preview; do not use the upstream installer to deploy this fork.
+> **This repository is the A-Denana Z.ai fork**, derived from [upstream-ray/codex-usage-monitor](https://github.com/upstream-ray/codex-usage-monitor). The fork offers a per-user Inno Setup installer and portable EXE, both separate from the upstream installer.
 
 It sits in your taskbar and shows how much of your Codex usage window remains without opening the Codex app or account usage page.
 
-## Z.ai portable edition (this fork)
+## Z.ai Windows edition (this fork)
 
 - **Codex and Z.ai** can stay visible together: two compact 5-hour/weekly rows with distinct green/purple bars.
 - Z.ai reads the local encrypted ZCode Coding Plan credential from `%USERPROFILE%\\.zcode\\v2\\credentials.json` in memory and queries the Z.ai quota API. You must already be signed in to ZCode.
@@ -26,7 +26,9 @@ It sits in your taskbar and shows how much of your Codex usage window remains wi
 - Portable preview settings and Windows startup entry are separate from upstream's installed monitor. **Run only one taskbar monitor at a time** to avoid overlapping widgets.
 - Automatic self-update is disabled for the `-zai.` preview version. Obtain updates from [this fork's releases](https://github.com/A-Denana/codex-usage-monitor/releases).
 
-**Install this edition (portable):** Download `codex-usage.exe` and `codex-usage.exe.sha256` from a release tagged `v*-zai.*` in this fork. Check the SHA256, save the executable in its own folder, and run it. No administrator access, installer, ZCode modification, or credential export is required. Do not overwrite the official Codex Usage executable.
+**Installer (recommended):** Download `CodexUsageZai-Setup-*.exe` and its `.sha256` checksum from [this fork's Releases](https://github.com/A-Denana/codex-usage-monitor/releases), close any running monitor, verify SHA256, then double-click the installer. Administrator rights are not required. You can choose Start with Windows and a desktop shortcut.
+
+**Portable alternative:** Download `codex-usage.exe` and `codex-usage.exe.sha256`, verify SHA256, and run the executable from your own folder. Don't use the upstream installer for Z.ai. See [Windows installer and uninstall instructions](docs/windows-installer.md).
 
 ## What You Get
 
@@ -62,7 +64,7 @@ It works best if you want a simple "how close am I to the limit?" display that i
 
 ## Requirements
 
-- Windows 10 or Windows 11
+- Windows 10 or Windows 11 (64-bit)
 - Codex CLI or Codex app installed and authenticated
 - Optional: Claude Code installed and authenticated
 - Optional: Google Antigravity installed and authenticated, if you want Antigravity usage
@@ -73,7 +75,7 @@ If you use Claude Code through WSL, that is supported too. The monitor can read 
 
 ## Install (upstream edition only)
 
-The installer below is for **the original upstream edition without Z.ai support**. For this fork, use the portable instructions above instead.
+The installer below is for **the original upstream edition without Z.ai support**. For this fork, use our own installer described above.
 
 For an upstream per-user installation, download `install.ps1` from the [upstream latest release](https://github.com/upstream-ray/codex-usage-monitor/releases/latest), then run:
 

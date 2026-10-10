@@ -30,6 +30,7 @@ pub enum TrayIconKind {
     Claude,
     Codex,
     Antigravity,
+    Zai,
 }
 
 pub struct TrayIconData {

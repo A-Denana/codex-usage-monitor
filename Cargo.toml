@@ -1,11 +1,11 @@
 [package]
 name = "codex-usage"
-version = "1.10.0"
+version = "1.10.0-zai.1"
 edition = "2021"
 license = "MIT"
 description = "Codex Usage"
-homepage = "https://github.com/upstream-ray/codex-usage-monitor"
-repository = "https://github.com/upstream-ray/codex-usage-monitor"
+homepage = "https://github.com/A-Denana/codex-usage-monitor"
+repository = "https://github.com/A-Denana/codex-usage-monitor"
 
 [package.metadata.winres]
 CompanyName = "Ray"

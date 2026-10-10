@@ -1,0 +1,48 @@
+name: Validate Z.ai Installer
+
+on:
+  push:
+    branches:
+      - feat/zai-inno-installer
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format temporary workspace
+        run: cargo fmt --all
+      - name: Rust tests
+        run: cargo test --all-targets --locked
+      - name: Build Rust release
+        run: cargo build --release --locked
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey install failed: $LASTEXITCODE" }
+      - name: Compile installer and verify artifact
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Missing Inno Setup compiler: $iscc" }
+          & $iscc "/DMyAppVersion=$version" 'installer\codex-usage-zai.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC error: $LASTEXITCODE" }
+          $installer = "dist\CodexUsageZai-Setup-$version.exe"
+          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          Write-Host "Built $installer; SHA256: $hash"
+      - name: Upload installer preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexUsageZai-Inno-Setup-preview
+          path: dist/CodexUsageZai-Setup-*.exe
+          if-no-files-found: error

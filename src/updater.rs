@@ -80,6 +80,10 @@ pub fn current_install_channel() -> InstallChannel {
 }
 
 pub fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    // Preview builds must not offer replacement binaries from upstream or an unrelated release.
+    if env!("CARGO_PKG_VERSION").contains("-zai.") {
+        return Ok(UpdateCheckResult::UpToDate);
+    }
     match fetch_latest_release()? {
         Some(release) => Ok(UpdateCheckResult::Available(release)),
         None => Ok(UpdateCheckResult::UpToDate),

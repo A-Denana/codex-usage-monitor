@@ -1127,6 +1127,17 @@ fn effective_poll_interval(state: &AppState) -> u32 {
         .delay_ms(Instant::now(), state.poll_interval_ms)
 }
 
+// Z.ai's quota API can explicitly report zero usage without a reset timestamp.
+// Unlike Codex's absent-window sentinel, this is a valid 0% reading.
+fn format_zai_quota_line(
+    section: &crate::models::UsageSection,
+    strings: Strings,
+    show_remaining_in_chinese: bool,
+    window: poller::UsageWindowKind,
+) -> String {
+    poller::format_line(section, strings, show_remaining_in_chinese, window)
+}
+
 fn refresh_usage_texts(state: &mut AppState) {
     let strings = state.language.strings();
     let show_remaining = state.language == LanguageId::SimplifiedChinese;
@@ -1205,13 +1216,13 @@ fn refresh_usage_texts(state: &mut AppState) {
         state.antigravity_weekly_text = label.to_string();
     }
     if let Some(zai) = data.zai.as_ref() {
-        state.zai_session_text = poller::format_codex_line(
+        state.zai_session_text = format_zai_quota_line(
             &zai.session,
             strings,
             show_remaining,
             poller::UsageWindowKind::Session,
         );
-        state.zai_weekly_text = poller::format_codex_line(
+        state.zai_weekly_text = format_zai_quota_line(
             &zai.weekly,
             strings,
             show_remaining,
@@ -5342,6 +5353,43 @@ mod tests {
         };
         assert_eq!(format_local_system_time(local), "2026-07-17 18:30");
         assert_eq!(format_precise_reset_time(None), None);
+    }
+
+    #[test]
+    fn zai_explicit_zero_without_reset_remains_visible_as_zero() {
+        let confirmed_zero = crate::models::UsageSection {
+            percentage: 0.0,
+            resets_at: None,
+        };
+        let english = LanguageId::English.strings();
+        assert_eq!(
+            format_zai_quota_line(
+                &confirmed_zero,
+                english,
+                false,
+                poller::UsageWindowKind::Session
+            ),
+            "0%"
+        );
+        // Codex still uses its own missing-window sentinel.
+        assert_eq!(
+            poller::format_codex_line(
+                &confirmed_zero,
+                english,
+                false,
+                poller::UsageWindowKind::Session
+            ),
+            "--"
+        );
+        assert_eq!(
+            format_zai_quota_line(
+                &confirmed_zero,
+                LanguageId::SimplifiedChinese.strings(),
+                true,
+                poller::UsageWindowKind::Session
+            ),
+            "100%"
+        );
     }
 
     #[test]

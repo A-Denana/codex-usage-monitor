@@ -282,6 +282,23 @@ mod tests {
     }
 
     #[test]
+    fn zero_used_with_no_reset_time_is_a_real_zai_quota_value() {
+        let payload: QuotaEnvelope = serde_json::from_str(
+            r#"{
+                "code": 200, "success": true, "data": { "limits": [
+                    {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 0},
+                    {"type": "CREDIT_LIMIT", "unit": 6, "percentage": 97}
+                ]}
+            }"#,
+        )
+        .unwrap();
+        let data = parse_quota(payload).unwrap();
+        assert_eq!(data.session.percentage, 0.0);
+        assert!(data.session.resets_at.is_none());
+        assert_eq!(data.weekly.percentage, 97.0);
+    }
+
+    #[test]
     fn rejects_body_auth_failure_even_when_http_is_ok() {
         let payload: QuotaEnvelope =
             serde_json::from_str(r#"{"code":401,"success":false}"#).unwrap();

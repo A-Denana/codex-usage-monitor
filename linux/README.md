@@ -23,8 +23,10 @@ uv pip install --python ~/.local/share/codex-usage-monitor/venv/bin/python 'cryp
 Use your actual checkout path in GenMon's **Command** setting, with quotes around it:
 
 ```bash
-/home/denana/.local/share/codex-usage-monitor/venv/bin/python '/mnt/d/Denana/Distinct/Python/Data_analysis_Projects/codex-usage-monitor/linux/codex_usage.py' --genmon
+/home/denana/.local/share/codex-usage-monitor/venv/bin/python '/mnt/d/Denana/Distinct/Python/Data_analysis_Projects/codex-usage-monitor-linux/linux/codex_usage.py' --genmon
 ```
+
+The example path above uses the separate `codex-usage-monitor-linux` worktree created during setup. Adjust it if you chose a different worktree directory.
 
 Set **Period** to `30` seconds. The program caches quota responses for at least **five minutes** per provider to avoid excess requests. The panel refreshes locally from that cache. Choose GenMon's text display mode; the output uses two colored text rows and five-segment bars. On panels that are too short for two rows, adjust panel height or select a different placement.
 
@@ -53,6 +55,10 @@ The monitor reads `$CODEX_HOME/auth.json` (or `~/.codex/auth.json`) and `~/.zcod
 
 Only quota percentages, reset timestamps, sanitized error categories, and last-update timestamps are cached under `~/.cache/codex-usage-monitor/` (or `$XDG_CACHE_HOME`), with user-only permissions. Tokens are never saved by this monitor. It never refreshes, rewrites, or uploads credential files and does not send telemetry. Python cannot guarantee zeroization of its in-memory strings; do not use this on untrusted shared hosts. HTTP proxies inherited from your Linux environment should also be trusted.
 
+## Linux ZCode credential selection
+
+Some Linux ZCode installations use credential labels different from the Windows `zai-individual-coding-plan:api-key` name. The adapter considers **only** encrypted entries whose label contains `zai` (case-insensitive), accepts exactly one entry decryptable using the current Linux account, and returns `AUTH` if none or multiple can be used. It never searches or sends non-Z.ai provider credentials. If you see `AUTH` after updating, do not paste `credentials.json` or decrypted tokens into issues, chats, or terminal output. Check that ZCode is logged in to Z.ai under the current Linux user.
+
 ## Status and limits
 
-**Experimental / not verified against live accounts.** Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.
+**Experimental / not verified against live Z.ai accounts.** Codex was verified against a real Linux login; Z.ai still requires an on-device request after credential selection. Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.

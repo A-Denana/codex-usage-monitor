@@ -126,6 +126,28 @@ class ParseTests(unittest.TestCase):
             self.assertEqual(data['session']['used'], 9)
             self.assertEqual(data['weekly']['used'], 90)
 
+    def test_genmon_colors_only_used_bar_segments(self):
+        state = {
+            'codex': {'data': {'session': {'used': 0, 'reset': None},
+                               'weekly': {'used': 33, 'reset': None}},
+                      'error': None},
+            'zai': {'data': {'session': {'used': 9, 'reset': None},
+                             'weekly': {'used': 90, 'reset': None}},
+                    'error': None},
+        }
+        output = monitor.render_genmon(state)
+        self.assertIn('5h 0% ┄┄┄┄┄', output)
+        self.assertIn('<span foreground="#4bd68a" weight="bold">━━</span>', output)
+        self.assertIn('<span foreground="#bd8aff" weight="bold">━</span>', output)
+        self.assertIn('7d 90%', output)
+        self.assertNotIn('&lt;span foreground=', output)
+
+    def test_plain_tooltips_remain_uncolored(self):
+        self.assertEqual(monitor.render_window({'used': 9}), '9% ━┄┄┄┄')
+        self.assertEqual(monitor.render_window({'used': 0}, color='#4bd68a'),
+                         '0% ┄┄┄┄┄')
+        self.assertEqual(monitor.render_window(None, color='#4bd68a'), '--')
+
     def test_genmon_sanitizes_error_and_escapes_text(self):
         result = monitor.render_genmon({'codex': {'data': None, 'error': 'AUTH'},
                                         'zai': {'data': None, 'error': 'NET'}})

@@ -106,7 +106,7 @@ def codex_credentials():
     return data['access_token'], data.get('account_id')
 
 
-def decode_zai(stored, *, home=None, username=None, secret=None):
+def decode_zai(stored, *, home=None, username=None, secret=None, require_api_key=True):
     if not isinstance(stored, str) or not stored.startswith('enc:v1:'):
         raise MonitorError('AUTH')
     try:
@@ -126,8 +126,10 @@ def decode_zai(stored, *, home=None, username=None, secret=None):
         secret = (os.environ.get('ZCODE_CREDENTIAL_SECRET') or f'zcode-credential-fallback:linux:{home}:{username}') if secret is None else secret
         key = hashlib.sha256(secret.encode()).digest()
         plaintext = AESGCM(key).decrypt(iv, cipher + tag, None).decode('utf-8')
-        if len(plaintext.split('.')) != 2:
-            raise ValueError('invalid key format')
+        if not plaintext or len(plaintext) > 16384:
+            raise ValueError('invalid credential')
+        if require_api_key and len(plaintext.split('.')) != 2:
+            raise ValueError('invalid API-key format')
         return plaintext
     except (ValueError, UnicodeError, TypeError):
         raise MonitorError('AUTH') from None
@@ -136,34 +138,61 @@ def decode_zai(stored, *, home=None, username=None, secret=None):
         raise MonitorError('AUTH') from None
 
 
-def zai_credentials():
-    """Select one locally decryptable Z.ai key, without trying other providers' secrets.
+def exchange_zai_oauth(oauth_token):
+    """Read-only exchange of ZCode's Z.ai OAuth token for a Z.ai business JWT.
 
-    ZCode stores different credential labels on Windows and Linux. Credential
-    names alone do not prove that a key can be decrypted in this Linux session.
-    Refuse ambiguous matches rather than selecting an arbitrary account.
+    Never send OAuth material to the quota endpoint as if it were an API key.
+    No token or response body is logged, persisted or returned to CLI output.
+    """
+    if not isinstance(oauth_token, str) or not oauth_token or len(oauth_token) > 16384:
+        raise MonitorError('AUTH')
+    endpoint = 'https://api.z.ai/api/auth/z/login'
+    payload = json.dumps({'token': oauth_token}).encode('utf-8')
+    req = request.Request(endpoint, data=payload, method='POST', headers={
+        'Content-Type': 'application/json',
+        'User-Agent': 'ZCode/unknown',
+        'HTTP-Referer': 'https://zcode.z.ai',
+    })
+    try:
+        with request.urlopen(req, timeout=12) as response:
+            body = response.read(262145)
+            if len(body) > 262144:
+                raise MonitorError('ERR')
+            answer = json.loads(body)
+    except error.HTTPError as exc:
+        raise MonitorError('AUTH' if exc.code in (401, 403) else '429' if exc.code == 429 else '5XX' if exc.code >= 500 else 'ERR') from None
+    except (error.URLError, TimeoutError, OSError):
+        raise MonitorError('NET') from None
+    except (ValueError, UnicodeError):
+        raise MonitorError('ERR') from None
+    if (not isinstance(answer, dict) or answer.get('success') is not True
+            or answer.get('code') not in (0, 200)):
+        raise MonitorError('AUTH')
+    info = answer.get('data')
+    token = info.get('access_token') if isinstance(info, dict) else None
+    if not isinstance(token, str) or not token or len(token) > 16384:
+        raise MonitorError('AUTH')
+    return token
+
+
+def zai_credentials():
+    """Select an explicit Z.ai key, or use the documented ZCode OAuth flow.
+
+    Never infer a token's provider from its decrypted shape.
     """
     credentials = read_json(Path.home() / '.zcode' / 'v2' / 'credentials.json')
-    candidate = None
-    for name, value in credentials.items():
-        # Never try/decrypt or send non-Z.ai providers' stored credentials.
-        if not isinstance(name, str) or 'zai' not in name.casefold():
-            continue
-        if not isinstance(value, str) or not value.startswith('enc:v1:'):
-            continue
-        try:
-            decrypted = decode_zai(value)
-        except MonitorError as exc:
-            if str(exc) == 'DEPS':
-                raise
-            continue
-        if candidate is not None:
-            # Two usable Z.ai keys may represent different accounts.
-            raise MonitorError('AUTH')
-        candidate = decrypted
-    if candidate is None:
+    manual = [value for name, value in credentials.items()
+              if isinstance(name, str) and 'zai' in name.casefold()
+              and name.endswith(':api-key') and isinstance(value, str)
+              and value.startswith('enc:v1:')]
+    if len(manual) > 1:
         raise MonitorError('AUTH')
-    return candidate
+    if len(manual) == 1:
+        return decode_zai(manual[0])
+    stored = credentials.get('oauth:zai:access_token')
+    if not isinstance(stored, str) or not stored.startswith('enc:v1:'):
+        raise MonitorError('AUTH')
+    return exchange_zai_oauth(decode_zai(stored, require_api_key=False))
 
 
 def http_json(url, token, extra_headers=None):

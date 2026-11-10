@@ -55,10 +55,27 @@ The monitor reads `$CODEX_HOME/auth.json` (or `~/.codex/auth.json`) and `~/.zcod
 
 Only quota percentages, reset timestamps, sanitized error categories, and last-update timestamps are cached under `~/.cache/codex-usage-monitor/` (or `$XDG_CACHE_HOME`), with user-only permissions. Tokens are never saved by this monitor. It never refreshes, rewrites, or uploads credential files and does not send telemetry. Python cannot guarantee zeroization of its in-memory strings; do not use this on untrusted shared hosts. HTTP proxies inherited from your Linux environment should also be trusted.
 
-## Linux ZCode credential selection
+## Linux ZCode OAuth and API-key credentials
 
-Some Linux ZCode installations use credential labels different from the Windows `zai-individual-coding-plan:api-key` name. The adapter considers **only** encrypted entries whose label contains `zai` (case-insensitive), accepts exactly one entry decryptable using the current Linux account, and returns `AUTH` if none or multiple can be used. It never searches or sends non-Z.ai provider credentials. If you see `AUTH` after updating, do not paste `credentials.json` or decrypted tokens into issues, chats, or terminal output. Check that ZCode is logged in to Z.ai under the current Linux user.
+ZCode account login stores an encrypted `oauth:zai:access_token` record, while
+API-key login may also store a provider-specific `:api-key` record. The Linux
+adapter supports both modes:
+
+- If exactly one Z.ai-labeled `:api-key` exists, decrypt and use it with the
+  quota API. Multiple matching manual keys fail closed with `AUTH`.
+- Otherwise decrypt **only** the exact `oauth:zai:access_token` entry (without
+  imposing API-key syntax), exchange it via
+  `POST https://api.z.ai/api/auth/z/login`, and send the resulting Z.ai business
+  access token to the quota endpoint. This does **not** create an API key,
+  authenticate a model request, or write to ZCode's credential store.
+- The adapter never uses `zcodejwttoken` (ZCode platform identity) or other
+  providers' entries as a Z.ai bearer token.
+
+The exchange depends on ZCode's currently observed OAuth behavior; invalid or
+expired sessions may return `AUTH` even while the ZCode desktop UI still has
+cached quota values. Do not paste any tokens, encrypted credentials, or response
+bodies into chat or issues. No credentials or business tokens are saved to disk.
 
 ## Status and limits
 
-**Experimental / not verified against live Z.ai accounts.** Codex was verified against a real Linux login; Z.ai still requires an on-device request after credential selection. Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.
+**Experimental / OAuth flow not yet verified against a live Z.ai Linux account.** Codex was verified against a real Linux login; Z.ai still requires an on-device request after credential selection. Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.

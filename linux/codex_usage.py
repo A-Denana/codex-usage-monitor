@@ -244,14 +244,23 @@ def clock_time(timestamp):
     return time.strftime('%m-%d %H:%M', time.localtime(timestamp)) if timestamp else '--'
 
 
-def render_window(item):
+def render_window(item, color=None):
+    """Render five quota segments; color only the used portion for GenMon.
+
+    The plain-text form is reused in tooltips, where markup is not needed.
+    """
     if not isinstance(item, dict):
         return '--'
     value = item.get('used')
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return '--'
     filled = max(0, min(5, round(value / 20)))
-    return f'{value:.0f}% ' + '━' * filled + '┄' * (5 - filled)
+    if 0 < value and filled == 0:
+        filled = 1  # A small nonzero usage should remain visible in a 5-step bar.
+    active = '━' * filled
+    if color is not None and active:
+        active = f'<span foreground="{color}" weight="bold">{active}</span>'
+    return f'{value:.0f}% ' + active + '┄' * (5 - filled)
 
 
 def render_genmon(snapshot):
@@ -261,10 +270,12 @@ def render_genmon(snapshot):
         data = state.get('data') if isinstance(state, dict) else None
         error_code = state.get('error') if isinstance(state, dict) else 'ERR'
         error_suffix = ' *' if error_code and data else f' {error_code}' if error_code else ''
-        session = render_window(data.get('session') if isinstance(data, dict) else None)
-        weekly = render_window(data.get('weekly') if isinstance(data, dict) else None)
+        session = render_window(data.get('session') if isinstance(data, dict) else None,
+                                color=COLORS[provider])
+        weekly = render_window(data.get('weekly') if isinstance(data, dict) else None,
+                               color=COLORS[provider])
         row = (f'<span foreground="{COLORS[provider]}" weight="bold">{initial}</span> '
-               f'5h {html.escape(session)}  7d {html.escape(weekly)}{html.escape(error_suffix)}')
+               f'5h {session}  7d {weekly}{html.escape(error_suffix)}')
         rows.append(row)
         tips.append(f'{NAMES[provider]}: ' + ('stale — ' if error_code and data else '') + (error_code or 'OK'))
         if isinstance(data, dict):

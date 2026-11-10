@@ -138,47 +138,11 @@ def decode_zai(stored, *, home=None, username=None, secret=None, require_api_key
         raise MonitorError('AUTH') from None
 
 
-def exchange_zai_oauth(oauth_token):
-    """Read-only exchange of ZCode's Z.ai OAuth token for a Z.ai business JWT.
-
-    Never send OAuth material to the quota endpoint as if it were an API key.
-    No token or response body is logged, persisted or returned to CLI output.
-    """
-    if not isinstance(oauth_token, str) or not oauth_token or len(oauth_token) > 16384:
-        raise MonitorError('AUTH')
-    endpoint = 'https://api.z.ai/api/auth/z/login'
-    payload = json.dumps({'token': oauth_token}).encode('utf-8')
-    req = request.Request(endpoint, data=payload, method='POST', headers={
-        'Content-Type': 'application/json',
-        'User-Agent': 'ZCode/unknown',
-        'HTTP-Referer': 'https://zcode.z.ai',
-    })
-    try:
-        with request.urlopen(req, timeout=12) as response:
-            body = response.read(262145)
-            if len(body) > 262144:
-                raise MonitorError('ERR')
-            answer = json.loads(body)
-    except error.HTTPError as exc:
-        raise MonitorError('AUTH' if exc.code in (401, 403) else '429' if exc.code == 429 else '5XX' if exc.code >= 500 else 'ERR') from None
-    except (error.URLError, TimeoutError, OSError):
-        raise MonitorError('NET') from None
-    except (ValueError, UnicodeError):
-        raise MonitorError('ERR') from None
-    if (not isinstance(answer, dict) or answer.get('success') is not True
-            or answer.get('code') not in (0, 200)):
-        raise MonitorError('AUTH')
-    info = answer.get('data')
-    token = info.get('access_token') if isinstance(info, dict) else None
-    if not isinstance(token, str) or not token or len(token) > 16384:
-        raise MonitorError('AUTH')
-    return token
-
-
 def zai_credentials():
-    """Select an explicit Z.ai key, or use the documented ZCode OAuth flow.
+    """Select a Z.ai API key or the exact Z.ai OAuth access-token record.
 
-    Never infer a token's provider from its decrypted shape.
+    The quota endpoint accepts the decrypted OAuth token directly.
+    Never infer its provider from plaintext or use a ZCode identity token.
     """
     credentials = read_json(Path.home() / '.zcode' / 'v2' / 'credentials.json')
     manual = [value for name, value in credentials.items()
@@ -192,7 +156,7 @@ def zai_credentials():
     stored = credentials.get('oauth:zai:access_token')
     if not isinstance(stored, str) or not stored.startswith('enc:v1:'):
         raise MonitorError('AUTH')
-    return exchange_zai_oauth(decode_zai(stored, require_api_key=False))
+    return decode_zai(stored, require_api_key=False)
 
 
 def http_json(url, token, extra_headers=None):

@@ -81,11 +81,9 @@ class ParseTests(unittest.TestCase):
         with (
             patch.object(monitor, 'read_json', return_value=values),
             patch.object(monitor, 'decode_zai', return_value='opaque-oauth') as decode,
-            patch.object(monitor, 'exchange_zai_oauth', return_value='business-jwt') as exchange,
         ):
-            self.assertEqual(monitor.zai_credentials(), 'business-jwt')
+            self.assertEqual(monitor.zai_credentials(), 'opaque-oauth')
             decode.assert_called_once_with('enc:v1:oauth', require_api_key=False)
-            exchange.assert_called_once_with('opaque-oauth')
 
     def test_zai_manual_api_key_preferred_over_oauth(self):
         values = {'account-provider:coding-plan:account:zai-individual:api-key': 'enc:v1:manual',
@@ -93,11 +91,9 @@ class ParseTests(unittest.TestCase):
         with (
             patch.object(monitor, 'read_json', return_value=values),
             patch.object(monitor, 'decode_zai', return_value='key.secret') as decode,
-            patch.object(monitor, 'exchange_zai_oauth') as exchange,
         ):
             self.assertEqual(monitor.zai_credentials(), 'key.secret')
             decode.assert_called_once_with('enc:v1:manual')
-            exchange.assert_not_called()
 
     def test_zai_rejects_ambiguous_manual_accounts(self):
         values = {'account:zai-one:api-key': 'enc:v1:one',
@@ -116,18 +112,19 @@ class ParseTests(unittest.TestCase):
                 monitor.zai_credentials()
             decode.assert_not_called()
 
-    def test_zai_business_token_exchange_response(self):
-        from io import BytesIO
-        payload = b'{"code":0,"success":true,"data":{"access_token":"business.jwt.token"}}'
-        with patch.object(monitor.request, 'urlopen', return_value=BytesIO(payload)) as urlopen:
-            self.assertEqual(monitor.exchange_zai_oauth('oauth-token'), 'business.jwt.token')
-            req = urlopen.call_args.args[0]
-            self.assertEqual(req.full_url, 'https://api.z.ai/api/auth/z/login')
-            self.assertEqual(json.loads(req.data), {'token': 'oauth-token'})
-        with patch.object(monitor.request, 'urlopen',
-                          return_value=BytesIO(b'{"code":500,"success":false}')):
-            with self.assertRaisesRegex(monitor.MonitorError, '^AUTH$'):
-                monitor.exchange_zai_oauth('oauth-token')
+    def test_zai_fetch_sends_oauth_directly_to_quota_endpoint(self):
+        response = {'code': 200, 'success': True, 'data': {'limits': [
+            {'type': 'CREDIT_LIMIT', 'unit': 3, 'percentage': 9},
+            {'type': 'CREDIT_LIMIT', 'unit': 6, 'percentage': 90}]}}
+        with (
+            patch.object(monitor, 'zai_credentials', return_value='oauth-credential') as creds,
+            patch.object(monitor, 'http_json', return_value=response) as send,
+        ):
+            data = monitor.fetch('zai')
+            creds.assert_called_once_with()
+            send.assert_called_once_with(monitor.ZAI_URL, 'oauth-credential')
+            self.assertEqual(data['session']['used'], 9)
+            self.assertEqual(data['weekly']['used'], 90)
 
     def test_genmon_sanitizes_error_and_escapes_text(self):
         result = monitor.render_genmon({'codex': {'data': None, 'error': 'AUTH'},

@@ -58,24 +58,24 @@ Only quota percentages, reset timestamps, sanitized error categories, and last-u
 ## Linux ZCode OAuth and API-key credentials
 
 ZCode account login stores an encrypted `oauth:zai:access_token` record, while
-API-key login may also store a provider-specific `:api-key` record. The Linux
-adapter supports both modes:
+manual API-key login may also store a provider-specific `:api-key` record. The
+Linux adapter supports both modes:
 
 - If exactly one Z.ai-labeled `:api-key` exists, decrypt and use it with the
   quota API. Multiple matching manual keys fail closed with `AUTH`.
 - Otherwise decrypt **only** the exact `oauth:zai:access_token` entry (without
-  imposing API-key syntax), exchange it via
-  `POST https://api.z.ai/api/auth/z/login`, and send the resulting Z.ai business
-  access token to the quota endpoint. This does **not** create an API key,
-  authenticate a model request, or write to ZCode's credential store.
+  imposing API-key syntax), then send that access token **directly** to
+  `GET https://api.z.ai/api/monitor/usage/quota/limit`. This flow was confirmed
+  with a real ZCode Linux account on November 10, 2026 (9% used in 5 hours,
+  90% used weekly). No extra login-exchange request is needed.
 - The adapter never uses `zcodejwttoken` (ZCode platform identity) or other
   providers' entries as a Z.ai bearer token.
 
-The exchange depends on ZCode's currently observed OAuth behavior; invalid or
-expired sessions may return `AUTH` even while the ZCode desktop UI still has
-cached quota values. Do not paste any tokens, encrypted credentials, or response
-bodies into chat or issues. No credentials or business tokens are saved to disk.
+If the quota endpoint returns a non-success response, report `AUTH` or the
+appropriate sanitized error; do not invent percentages. Do not paste tokens,
+encrypted credentials or response bodies into chat or issues. No credentials
+or bearer tokens are saved to disk by the monitor.
 
 ## Status and limits
 
-**Experimental / OAuth flow not yet verified against a live Z.ai Linux account.** Codex was verified against a real Linux login; Z.ai still requires an on-device request after credential selection. Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.
+**Experimental Linux panel integration; both Codex and Z.ai quota endpoints were verified against live accounts on November 10, 2026.** Codex was verified against a real Linux login; Z.ai still requires an on-device request after credential selection. Unit tests use offline fixtures, not user credentials. Codex and Z.ai endpoints may change; a failed request is reported without invented values. This is not currently a packaged Linux binary, a GNOME Shell extension, or a Plasma widget.

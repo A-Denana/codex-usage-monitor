@@ -137,12 +137,33 @@ def decode_zai(stored, *, home=None, username=None, secret=None):
 
 
 def zai_credentials():
+    """Select one locally decryptable Z.ai key, without trying other providers' secrets.
+
+    ZCode stores different credential labels on Windows and Linux. Credential
+    names alone do not prove that a key can be decrypted in this Linux session.
+    Refuse ambiguous matches rather than selecting an arbitrary account.
+    """
     credentials = read_json(Path.home() / '.zcode' / 'v2' / 'credentials.json')
-    keys = [value for name, value in credentials.items()
-            if 'zai-individual-coding-plan' in name and name.endswith(':api-key')]
-    if len(keys) != 1:
+    candidate = None
+    for name, value in credentials.items():
+        # Never try/decrypt or send non-Z.ai providers' stored credentials.
+        if not isinstance(name, str) or 'zai' not in name.casefold():
+            continue
+        if not isinstance(value, str) or not value.startswith('enc:v1:'):
+            continue
+        try:
+            decrypted = decode_zai(value)
+        except MonitorError as exc:
+            if str(exc) == 'DEPS':
+                raise
+            continue
+        if candidate is not None:
+            # Two usable Z.ai keys may represent different accounts.
+            raise MonitorError('AUTH')
+        candidate = decrypted
+    if candidate is None:
         raise MonitorError('AUTH')
-    return decode_zai(keys[0])
+    return candidate
 
 
 def http_json(url, token, extra_headers=None):

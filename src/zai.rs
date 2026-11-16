@@ -1,7 +1,7 @@
 //! Local ZCode Coding Plan usage, independent of ZCode's running process.
 //! Never print credentials, decrypted plaintext or server response bodies.
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use aes_gcm::aead::AeadInPlace;
@@ -17,6 +17,8 @@ const QUOTA_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
 const CREDENTIAL_SUFFIX: &str = ":api-key";
 const CREDENTIAL_ACCOUNT: &str = "zai-individual-coding-plan";
 const ENCRYPTED_PREFIX: &str = "enc:v1:";
+const SYSTEM_PREFIX: &str = "enc:v2:";
+const SYSTEM_SERVICE: &str = "ZCode Credential Encryption";
 
 #[derive(Deserialize)]
 struct QuotaEnvelope {
@@ -117,6 +119,52 @@ fn b64url_decode(text: &str) -> Option<Vec<u8>> {
     Some(result)
 }
 
+// Shared v1/v2 AES-GCM envelope: base64url(iv12).base64url(tag16).base64url(ciphertext).
+fn decrypt_envelope(payload: &str, key: &[u8]) -> Result<Zeroizing<String>, PollError> {
+    if key.len() != 32 {
+        return Err(PollError::AuthRequired);
+    }
+    let mut parts = payload.split('.');
+    let iv = b64url_decode(parts.next().ok_or(PollError::AuthRequired)?)
+        .ok_or(PollError::AuthRequired)?;
+    let tag = b64url_decode(parts.next().ok_or(PollError::AuthRequired)?)
+        .ok_or(PollError::AuthRequired)?;
+    let mut encrypted = b64url_decode(parts.next().ok_or(PollError::AuthRequired)?)
+        .ok_or(PollError::AuthRequired)?;
+    if parts.next().is_some() || iv.len() != 12 || tag.len() != 16 {
+        encrypted.zeroize();
+        return Err(PollError::AuthRequired);
+    }
+
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| PollError::AuthRequired)?;
+    if cipher
+        .decrypt_in_place_detached(
+            Nonce::from_slice(&iv),
+            b"",
+            &mut encrypted,
+            Tag::from_slice(&tag),
+        )
+        .is_err()
+    {
+        encrypted.zeroize();
+        return Err(PollError::AuthRequired);
+    }
+    let text = match String::from_utf8(encrypted) {
+        Ok(text) => Zeroizing::new(text),
+        Err(error) => {
+            let mut bytes = error.into_bytes();
+            bytes.zeroize();
+            return Err(PollError::AuthRequired);
+        }
+    };
+    // Manual Coding Plan API keys are two dot-separated components.
+    if text.split('.').count() != 2 || text.is_empty() {
+        return Err(PollError::AuthRequired);
+    }
+    Ok(text)
+}
+
+// Legacy ZCode credentials: SHA-256 of the configured or account-specific fallback secret.
 fn decode_credential(
     stored: &str,
     home: &str,
@@ -126,17 +174,6 @@ fn decode_credential(
     let encoded = stored
         .strip_prefix(ENCRYPTED_PREFIX)
         .ok_or(PollError::AuthRequired)?;
-    let mut components = encoded.split('.');
-    let iv = b64url_decode(components.next().ok_or(PollError::AuthRequired)?)
-        .ok_or(PollError::AuthRequired)?;
-    let tag = b64url_decode(components.next().ok_or(PollError::AuthRequired)?)
-        .ok_or(PollError::AuthRequired)?;
-    let mut encrypted = b64url_decode(components.next().ok_or(PollError::AuthRequired)?)
-        .ok_or(PollError::AuthRequired)?;
-    if components.next().is_some() || iv.len() != 12 || tag.len() != 16 {
-        return Err(PollError::AuthRequired);
-    }
-
     let secret = Zeroizing::new(
         custom
             .filter(|value| !value.trim().is_empty())
@@ -144,32 +181,111 @@ fn decode_credential(
             .unwrap_or_else(|| format!("zcode-credential-fallback:win32:{home}:{user}")),
     );
     let mut key = Sha256::digest(secret.as_bytes());
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| PollError::AuthRequired)?;
-    let result = cipher.decrypt_in_place_detached(
-        Nonce::from_slice(&iv),
-        b"",
-        &mut encrypted,
-        Tag::from_slice(&tag),
-    );
+    let result = decrypt_envelope(encoded, &key);
     key.fill(0);
-    if result.is_err() {
-        encrypted.fill(0);
+    result
+}
+
+// ZCode 3.18+ uses enc:v2:os:<keyId>:<payload>. keyId is the first 24 hex
+// characters of SHA-256 of the raw 32-byte key stored in Windows Credential Manager.
+fn decode_v2_credential(stored: &str, key: &[u8]) -> Result<Zeroizing<String>, PollError> {
+    let encoded = stored
+        .strip_prefix(SYSTEM_PREFIX)
+        .ok_or(PollError::AuthRequired)?;
+    let mut parts = encoded.split(':');
+    let source = parts.next().ok_or(PollError::AuthRequired)?;
+    let fingerprint = parts.next().ok_or(PollError::AuthRequired)?;
+    let payload = parts.next().ok_or(PollError::AuthRequired)?;
+    if source != "os"
+        || parts.next().is_some()
+        || fingerprint.len() != 24
+        || !fingerprint.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || key.len() != 32
+    {
         return Err(PollError::AuthRequired);
     }
-    // Move the plaintext allocation instead of cloning it. The wrapper clears
-    // the key on drop, including early error paths after validation.
-    let text = match String::from_utf8(encrypted) {
-        Ok(text) => Zeroizing::new(text),
-        Err(error) => {
-            let mut bytes = error.into_bytes();
-            bytes.zeroize();
+    let digest = Sha256::digest(key);
+    if !format!("{digest:x}").starts_with(fingerprint) {
+        return Err(PollError::AuthRequired);
+    }
+    decrypt_envelope(payload, key)
+}
+
+// Exact @napi-rs/keyring Windows entry identity used by ZCode:
+//   service = "ZCode Credential Encryption"
+//   username = hex(SHA-256(Node path.resolve(credentials.json)))
+//   Windows generic credential target = "<username>.<service>".
+fn system_credential_target(path: &Path) -> Result<String, PollError> {
+    let path = path.to_str().ok_or(PollError::AuthRequired)?;
+    let digest = Sha256::digest(path.as_bytes());
+    Ok(format!("{digest:x}.{SYSTEM_SERVICE}"))
+}
+
+fn read_windows_system_key(path: &Path) -> Result<Zeroizing<Vec<u8>>, PollError> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Security::Credentials::{
+        CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+    };
+
+    let target = system_credential_target(path)?;
+    let target_wide: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
+    // Read ONLY the expected generic credential under the current Windows logon.
+    unsafe {
+        CredReadW(
+            PCWSTR(target_wide.as_ptr()),
+            CRED_TYPE_GENERIC,
+            0,
+            &mut credential,
+        )
+        .map_err(|_| PollError::AuthRequired)?;
+        if credential.is_null() {
             return Err(PollError::AuthRequired);
         }
-    };
-    if text.split('.').count() != 2 || text.is_empty() {
-        return Err(PollError::AuthRequired);
+
+        // Erase the OS-allocated password blob before freeing the CredRead result.
+        struct CredentialGuard(*mut CREDENTIALW);
+        impl Drop for CredentialGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    let credential = &mut *self.0;
+                    if credential.CredentialBlobSize != 0 && !credential.CredentialBlob.is_null() {
+                        std::slice::from_raw_parts_mut(
+                            credential.CredentialBlob,
+                            credential.CredentialBlobSize as usize,
+                        )
+                        .zeroize();
+                    }
+                    CredFree(self.0.cast());
+                }
+            }
+        }
+        let _guard = CredentialGuard(credential);
+        let record = &*credential;
+        // @napi-rs/keyring setPassword stores a 43-character base64url string
+        // as UTF-16LE (without a NUL terminator), not raw key bytes.
+        if record.Type != CRED_TYPE_GENERIC
+            || record.CredentialBlobSize != 86
+            || record.CredentialBlob.is_null()
+        {
+            return Err(PollError::AuthRequired);
+        }
+        let bytes = std::slice::from_raw_parts(record.CredentialBlob, 86);
+        let mut encoded = Zeroizing::new(String::with_capacity(43));
+        for pair in bytes.chunks_exact(2) {
+            let unit = u16::from_le_bytes([pair[0], pair[1]]);
+            let byte = u8::try_from(unit).map_err(|_| PollError::AuthRequired)?;
+            if !(byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+                return Err(PollError::AuthRequired);
+            }
+            encoded.push(char::from(byte));
+        }
+        let key = Zeroizing::new(b64url_decode(&encoded).ok_or(PollError::AuthRequired)?);
+        if key.len() != 32 {
+            return Err(PollError::AuthRequired);
+        }
+        Ok(key)
     }
-    Ok(text)
 }
 
 fn section(limit: QuotaLimit) -> Result<UsageSection, PollError> {
@@ -227,11 +343,17 @@ fn classify_quota_transport_error(error: ureq::Error) -> PollError {
 
 pub fn poll_zai() -> Result<UsageData, PollError> {
     let stored = read_encrypted_key()?;
-    let home = dirs::home_dir().ok_or(PollError::NoCredentials)?;
-    let home = home.to_str().ok_or(PollError::AuthRequired)?;
-    let user = std::env::var("USERNAME").map_err(|_| PollError::AuthRequired)?;
-    let custom = std::env::var("ZCODE_CREDENTIAL_SECRET").ok();
-    let key = decode_credential(&stored, home, &user, custom.as_deref())?;
+    let key = if stored.starts_with("enc:v2:os:") {
+        let path = credentials_path().ok_or(PollError::NoCredentials)?;
+        let system_key = read_windows_system_key(&path)?;
+        decode_v2_credential(&stored, &system_key)?
+    } else {
+        let home = dirs::home_dir().ok_or(PollError::NoCredentials)?;
+        let home = home.to_str().ok_or(PollError::AuthRequired)?;
+        let user = std::env::var("USERNAME").map_err(|_| PollError::AuthRequired)?;
+        let custom = std::env::var("ZCODE_CREDENTIAL_SECRET").ok();
+        decode_credential(&stored, home, &user, custom.as_deref())?
+    };
     // Match the existing providers: ureq is built without default TLS features,
     // so HTTPS requires the native Windows TLS connector configured in build_agent.
     let agent = crate::poller::build_agent()?;
@@ -253,6 +375,87 @@ pub fn poll_zai() -> Result<UsageData, PollError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn encode64(bytes: &[u8]) -> String {
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut result = String::new();
+        let mut value = 0u32;
+        let mut bits = 0;
+        for &byte in bytes {
+            value = (value << 8) | u32::from(byte);
+            bits += 8;
+            while bits >= 6 {
+                bits -= 6;
+                result.push(CHARS[((value >> bits) & 63) as usize] as char);
+                value &= (1 << bits) - 1;
+            }
+        }
+        if bits > 0 {
+            result.push(CHARS[(value << (6 - bits)) as usize] as char);
+        }
+        result
+    }
+
+    #[test]
+    fn accepts_valid_v2_os_credential_and_rejects_wrong_key_id() {
+        let key = [42u8; 32];
+        let iv = [7u8; 12];
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let mut plaintext = b"part1.part2".to_vec();
+        let tag = cipher
+            .encrypt_in_place_detached(Nonce::from_slice(&iv), b"", &mut plaintext)
+            .unwrap();
+        let fingerprint = format!("{:x}", Sha256::digest(key));
+        let payload = format!(
+            "{}.{}.{}",
+            encode64(&iv),
+            encode64(&tag),
+            encode64(&plaintext)
+        );
+        let stored = format!("enc:v2:os:{}:{}", &fingerprint[..24], payload);
+        assert_eq!(decode_v2_credential(&stored, &key).unwrap().as_str(), "part1.part2");
+
+        let wrong_key = [43u8; 32];
+        assert_eq!(
+            decode_v2_credential(&stored, &wrong_key).unwrap_err(),
+            PollError::AuthRequired
+        );
+        assert_eq!(
+            decode_v2_credential(&stored.replace(":os:", ":env:"), &key).unwrap_err(),
+            PollError::AuthRequired
+        );
+        assert_eq!(
+            decode_v2_credential(&stored.replace(":os:", ":unexpected:"), &key).unwrap_err(),
+            PollError::AuthRequired
+        );
+        assert_eq!(
+            decode_v2_credential(&stored.replace(&fingerprint[..24], "not-a-key-id"), &key)
+                .unwrap_err(),
+            PollError::AuthRequired
+        );
+
+        let mut tampered = tag.to_vec();
+        tampered[0] ^= 1;
+        let bad_payload = format!(
+            "{}.{}.{}",
+            encode64(&iv),
+            encode64(&tampered),
+            encode64(&plaintext)
+        );
+        let bad = format!("enc:v2:os:{}:{}", &fingerprint[..24], bad_payload);
+        assert_eq!(
+            decode_v2_credential(&bad, &key).unwrap_err(),
+            PollError::AuthRequired
+        );
+    }
+
+    #[test]
+    fn system_key_target_uses_zcode_service_and_file_path_hash() {
+        let path = Path::new(r"C:\Users\Demo\.zcode\v2\credentials.json");
+        let target = system_credential_target(path).unwrap();
+        assert!(target.ends_with(".ZCode Credential Encryption"));
+        assert_eq!(target.split('.').next().unwrap().len(), 64);
+    }
 
     #[test]
     fn preserves_retry_after_window_from_rate_limit_responses() {

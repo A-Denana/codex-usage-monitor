@@ -70,11 +70,15 @@ pub fn credential_watch_signature() -> String {
 fn read_encrypted_key() -> Result<String, PollError> {
     let path = credentials_path().ok_or(PollError::NoCredentials)?;
     let bytes = std::fs::read(path).map_err(|_| PollError::NoCredentials)?;
+    parse_encrypted_key(&bytes)
+}
+
+fn parse_encrypted_key(bytes: &[u8]) -> Result<String, PollError> {
     if bytes.len() > 256 * 1024 {
         return Err(PollError::RequestFailed);
     }
     let values: HashMap<String, String> =
-        serde_json::from_slice(&bytes).map_err(|_| PollError::RequestFailed)?;
+        serde_json::from_slice(bytes).map_err(|_| PollError::RequestFailed)?;
     let mut keys = values
         .iter()
         .filter(|(name, _)| name.contains(CREDENTIAL_ACCOUNT) && name.ends_with(CREDENTIAL_SUFFIX));
@@ -82,7 +86,7 @@ fn read_encrypted_key() -> Result<String, PollError> {
     if keys.next().is_some() {
         return Err(PollError::RequestFailed);
     }
-    if !key.starts_with(ENCRYPTED_PREFIX) {
+    if !key.starts_with(ENCRYPTED_PREFIX) && !key.starts_with("enc:v2:os:") {
         return Err(PollError::AuthRequired);
     }
     Ok(key.clone())
@@ -394,6 +398,24 @@ mod tests {
             result.push(CHARS[(value << (6 - bits)) as usize] as char);
         }
         result
+    }
+
+    #[test]
+    fn reads_both_supported_zcode_credential_envelopes() {
+        for stored in ["enc:v1:dummy", "enc:v2:os:dummy:payload"] {
+            let json = serde_json::json!({
+                "zai-individual-coding-plan:api-key": stored
+            });
+            let bytes = serde_json::to_vec(&json).unwrap();
+            assert_eq!(parse_encrypted_key(&bytes).unwrap(), stored);
+        }
+        for stored in ["enc:v2:env:dummy:payload", "plain-text"] {
+            let json = serde_json::json!({
+                "zai-individual-coding-plan:api-key": stored
+            });
+            let bytes = serde_json::to_vec(&json).unwrap();
+            assert_eq!(parse_encrypted_key(&bytes).unwrap_err(), PollError::AuthRequired);
+        }
     }
 
     #[test]

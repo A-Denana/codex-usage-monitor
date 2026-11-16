@@ -20,7 +20,7 @@ It sits in your taskbar and shows how much of your Codex usage window remains wi
 ## Z.ai Windows edition (this fork)
 
 - **Codex and Z.ai** can stay visible together: two compact 5-hour/weekly rows with distinct green/purple bars.
-- Z.ai reads the local encrypted ZCode Coding Plan credential from `%USERPROFILE%\\.zcode\\v2\\credentials.json` in memory and queries the Z.ai quota API. You must already be signed in to ZCode.
+- Z.ai reads the local encrypted ZCode Coding Plan credential from `%USERPROFILE%\\.zcode\\v2\\credentials.json` in memory and queries the Z.ai quota API. It supports legacy `enc:v1` and ZCode 3.18+ `enc:v2:os` credentials using a **read-only** Windows Credential Manager lookup. You must already be signed in to ZCode.
 - Quota percentages on the English display are **used**, not remaining. Hover for detailed quota status and the next refresh.
 - Provider toggles, separate retry schedules, low-quota alerts, and a compact stale-data marker are supported.
 - Portable preview settings and Windows startup entry are separate from upstream's installed monitor. **Run only one taskbar monitor at a time** to avoid overlapping widgets.
